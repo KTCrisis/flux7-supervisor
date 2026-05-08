@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flux7-supervisor"
+version = "0.1.0"
+description = "Standalone supervisor agent for flux7-mesh — L1 evaluation with pluggable LLM providers"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "flux7-mesh>=0.1.0",
+    "flux7-memory>=0.4.0",
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+    "httpx>=0.27",
+    "mcp>=1.0",
+]
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.50"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.4"]
+
+[project.scripts]
+sup7 = "sup7.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sup7"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

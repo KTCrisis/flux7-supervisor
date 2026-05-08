@@ -1,0 +1,48 @@
+mesh:
+  url: http://localhost:9090
+  agent_id: supervisor
+
+memory:
+  url: http://localhost:9070
+  enabled: true
+  store_decisions: true
+  recall_on_start: true
+  recall_limit: 20
+  tags: [supervisor, decision]
+
+evaluator:
+  provider: ollama           # ollama | anthropic | claude-code
+  model: qwen3:14b           # or claude-sonnet-4-6 (ignored for claude-code)
+  url: http://localhost:11434 # Ollama URL (ignored for anthropic/claude-code)
+  timeout: 30
+  callback_timeout: 120      # seconds to wait for Claude Code MCP response
+  confidence_threshold: 0.8
+
+mcp_server:
+  enabled: true              # expose sup7.pending + sup7.verdict via MCP
+  transport: stdio           # stdio (registered in mesh7 config) or http
+  port: 9095                 # only for http transport
+
+poll:
+  interval: 2s
+  tool_scopes: []            # glob filters, empty = all
+
+rules:
+  - name: safe-reads
+    condition: "tool contains read"
+    action: approve
+    confidence: 0.95
+  - name: project-writes
+    condition: "params.path starts_with project_dir"
+    action: approve
+    confidence: 0.9
+  - name: injection-risk
+    condition: "injection_risk == true"
+    action: escalate
+    confidence: 1.0
+
+project_dirs:
+  - /home/fluxart/flux7-mesh
+  - /home/fluxart/flux7-console
+
+decision_log: sup7-decisions.jsonl
