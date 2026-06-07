@@ -1,0 +1,24 @@
+# flux7-supervisor — system unit (survives WSL user-manager bus issues).
+# Install:
+#   sudo cp contrib/systemd/sup7.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now sup7
+# Adapt User= and paths to your setup.
+#
+# sup7 waits for the mesh itself (poll loop), so the After=/Wants= ordering
+# is comfort, not correctness: a sup7 started before the mesh simply polls
+# until it answers.
+
+[Unit]
+Description=flux7-supervisor L1 evaluation agent (sup7)
+Documentation=https://docs.flux7.art
+After=network.target mesh7.service
+Wants=mesh7.service
+
+[Service]
+User=fluxart
+ExecStart=/home/fluxart/py_env/bin/sup7 -c /home/fluxart/.sup7/sup7.yaml start
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
