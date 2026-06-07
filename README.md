@@ -35,6 +35,17 @@ sup7 -c sup7.yaml start
 
 Requires a running `mesh7 serve` instance. Optional: `mem7 serve` for decision persistence.
 
+## Run as a service
+
+A systemd unit is provided in [`contrib/systemd/sup7.service`](contrib/systemd/sup7.service) (`After=`/`Wants=mesh7.service`, restart on failure):
+
+```bash
+sudo cp contrib/systemd/sup7.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now sup7
+```
+
+Adapt `User=` and paths first. Pair it with `approval.channel: queue` in the mesh config — a service has no TTY to prompt on.
+
 ## Configuration
 
 ```yaml
