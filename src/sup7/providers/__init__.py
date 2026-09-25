@@ -22,6 +22,10 @@ def create_evaluator(config: EvaluatorConfig) -> Evaluator:
         from .anthropic import AnthropicEvaluator
 
         return AnthropicEvaluator(config)
+    elif config.provider == "jev":
+        from .jev import JevEvaluator
+
+        return JevEvaluator(config)
     elif config.provider == "claude-code":
         from .claude_code import ClaudeCodeEvaluator
 

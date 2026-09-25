@@ -11,12 +11,17 @@ memory:
   tags: [supervisor, decision]
 
 evaluator:
-  provider: ollama           # ollama | anthropic | claude-code
+  provider: ollama           # ollama | anthropic | claude-code | jev
   model: qwen3:14b           # or claude-sonnet-4-6 (ignored for claude-code)
   url: http://localhost:11434 # Ollama URL (ignored for anthropic/claude-code)
   timeout: 30
   callback_timeout: 120      # seconds to wait for Claude Code MCP response
   confidence_threshold: 0.8
+  # jev:                       # only for provider: jev (see README)
+  #   backend: cloudflare      # cloudflare | typesafe
+  #   api_key_env: CLOUDFLARE_API_TOKEN
+  #   account_id_env: CLOUDFLARE_ACCOUNT_ID
+  #   redact_params: [content]
 
 mcp_server:
   enabled: true              # expose sup7.pending + sup7.verdict via MCP

@@ -33,13 +33,29 @@ class MemoryConfig(BaseModel):
     tags: list[str] = Field(default_factory=lambda: ["supervisor", "decision"])
 
 
+class JevConfig(BaseModel):
+    """Jev (TypeSafe AI) settings; used when evaluator.provider is "jev"."""
+
+    backend: Literal["cloudflare", "typesafe"] = "cloudflare"
+    model: str = ""  # default: typesafe/jev (cloudflare) or jev-latest (typesafe)
+    url: str = ""  # default: the backend's public endpoint
+    api_key_env: str = "CLOUDFLARE_API_TOKEN"  # TYPESAFE_API_KEY for backend typesafe
+    account_id_env: str = "CLOUDFLARE_ACCOUNT_ID"  # cloudflare only
+    injection_max: float = 0.5  # above: escalate
+    destructive_max: float = 0.2  # above: never auto-approve
+    in_scope_min: float = 0.7  # below: never auto-approve
+    deny_min: float = 0.9  # deny only when this probable
+    redact_params: list[str] = Field(default_factory=list)  # param names never sent
+
+
 class EvaluatorConfig(BaseModel):
-    provider: Literal["ollama", "anthropic", "claude-code"] = "ollama"
+    provider: Literal["ollama", "anthropic", "claude-code", "jev"] = "ollama"
     model: str = "qwen3:14b"
     url: str = "http://localhost:11434"
     timeout: float = 30.0
     callback_timeout: float = 120.0
     confidence_threshold: float = 0.8
+    jev: JevConfig = Field(default_factory=JevConfig)
     system_prompt: str = (
         "You are a supervisor agent evaluating tool call approval requests. "
         "You receive a JSON description of a pending approval including the tool name, "

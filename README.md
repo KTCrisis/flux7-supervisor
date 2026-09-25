@@ -59,7 +59,7 @@ memory:
   store_decisions: true
 
 evaluator:
-  provider: ollama           # ollama | anthropic | claude-code
+  provider: ollama           # ollama | anthropic | claude-code | jev
   model: qwen3:14b
   url: http://localhost:11434
   timeout: 30
@@ -102,10 +102,39 @@ project_dirs:
 | `ollama` | Local HTTP, any model | Default. Fast, private, no API cost |
 | `anthropic` | Claude Messages API | Higher quality evaluation, cloud |
 | `claude-code` | MCP callback via `sup7.pending` + `sup7.verdict` tools | Claude Code acts as supervisor |
+| `jev` | TypeSafe AI decision model, via Cloudflare Workers AI or the TypeSafe API | Fast typed decisions with probabilities, auditable |
 
 ### Claude Code callback
 
 When `provider: claude-code`, sup7 exposes two MCP tools (`sup7.pending`, `sup7.verdict`). Register sup7 as an MCP server in your mesh config — Claude Code pulls pending evaluations and submits verdicts. See [docs](https://docs.flux7.art/sup7/claude-code-callback/).
+
+### Jev (TypeSafe AI)
+
+Jev does not generate text: it answers typed questions about a state, each with a probability. sup7 asks four atomic questions about the pending call and combines them in code, fail-closed:
+
+| Question | Type | Asks |
+|----------|------|------|
+| `decision` | choice | approve, escalate or deny |
+| `destructive` | noul | deletes, overwrites or exfiltrates data, or changes permissions or secrets |
+| `in_scope` | noul | consistent with the agent's recent activity |
+| `injection` | noul | parameters carry instructions aimed at a model |
+
+Approve only when `decision` is approve, `destructive` is low and `in_scope` is high (then `confidence_threshold` applies); deny only when deny is very probable; escalate everything else, including any API error. The probabilities are written into the decision reasoning, so each verdict is auditable in the mesh traces and in mem7.
+
+```yaml
+evaluator:
+  provider: jev
+  confidence_threshold: 0.8
+  jev:
+    backend: cloudflare              # cloudflare (Workers AI, zero data retention) | typesafe
+    api_key_env: CLOUDFLARE_API_TOKEN  # TYPESAFE_API_KEY with backend: typesafe
+    account_id_env: CLOUDFLARE_ACCOUNT_ID
+    destructive_max: 0.2
+    in_scope_min: 0.7
+    injection_max: 0.5
+    deny_min: 0.9
+    redact_params: [content]         # parameter names never sent to the model
+```
 
 ## Rule conditions
 
@@ -155,7 +184,8 @@ src/sup7/
     ├── base.py         # Provider interface
     ├── ollama.py       # Ollama HTTP provider
     ├── anthropic.py    # Claude Messages API
-    └── claude_code.py  # MCP callback provider
+    ├── claude_code.py  # MCP callback provider
+    └── jev.py          # TypeSafe Jev decision model (Cloudflare or TypeSafe)
 ```
 
 ## License
