@@ -17,6 +17,11 @@ evaluator:
   timeout: 30
   callback_timeout: 120      # seconds to wait for Claude Code MCP response
   confidence_threshold: 0.8
+  # chain:                     # optional: providers tried in order, next on failure (see README)
+  #   - provider: jev
+  #     jev: { backend: cloudflare, api_key_env: CLOUDFLARE_WORKERS_AI_TOKEN }
+  #   - provider: ollama
+  #     model: qwen3:14b
   # jev:                       # only for provider: jev (see README)
   #   backend: cloudflare      # cloudflare | typesafe
   #   api_key_env: CLOUDFLARE_API_TOKEN

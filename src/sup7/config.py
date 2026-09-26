@@ -56,6 +56,12 @@ class EvaluatorConfig(BaseModel):
     callback_timeout: float = 120.0
     confidence_threshold: float = 0.8
     jev: JevConfig = Field(default_factory=JevConfig)
+    # Provider chain: tried in order, next one only when the previous fails
+    # (no answer). Empty = the single provider above. Each entry is a full
+    # evaluator config; confidence_threshold stays the top-level one.
+    chain: list["EvaluatorConfig"] = Field(default_factory=list)
+    breaker_failures: int = 3  # consecutive failures before a provider is skipped
+    breaker_cooldown: float = 300.0  # seconds a tripped provider stays skipped
     system_prompt: str = (
         "You are a supervisor agent evaluating tool call approval requests. "
         "You receive a JSON description of a pending approval including the tool name, "
@@ -70,6 +76,8 @@ class EvaluatorConfig(BaseModel):
         "- Be conservative: when in doubt, ESCALATE"
     )
 
+
+EvaluatorConfig.model_rebuild()
 
 class MCPServerConfig(BaseModel):
     enabled: bool = True

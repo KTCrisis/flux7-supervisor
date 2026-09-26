@@ -108,6 +108,24 @@ project_dirs:
 
 When `provider: claude-code`, sup7 exposes two MCP tools (`sup7.pending`, `sup7.verdict`). Register sup7 as an MCP server in your mesh config — Claude Code pulls pending evaluations and submits verdicts. See [docs](https://docs.flux7.art/sup7/claude-code-callback/).
 
+### Provider chain
+
+Several providers can be chained, so sup7 follows the evaluators a team actually has or is allowed to use, and survives a provider going down or away:
+
+```yaml
+evaluator:
+  confidence_threshold: 0.8
+  breaker_failures: 3       # consecutive failures before a provider is skipped
+  breaker_cooldown: 300     # seconds it stays skipped
+  chain:
+    - provider: jev         # fast typed decisions when available
+      jev: { backend: cloudflare, api_key_env: CLOUDFLARE_WORKERS_AI_TOKEN }
+    - provider: ollama      # local, free, works offline
+      model: qwen3:14b
+```
+
+Providers are tried in order; the first one that answers gives the verdict (an `escalate` verdict is an answer). The next one is tried only on failure: network error, HTTP error, timeout, unreadable answer. If every provider fails, sup7 escalates to a human. The reasoning records who decided, e.g. `[ollama, jev skipped] ...`. Without `chain`, the single `provider` works as before.
+
 ### Jev (TypeSafe AI)
 
 Jev does not generate text: it answers typed questions about a state, each with a probability. sup7 asks four atomic questions about the pending call and combines them in code, fail-closed:
@@ -185,7 +203,8 @@ src/sup7/
     ├── ollama.py       # Ollama HTTP provider
     ├── anthropic.py    # Claude Messages API
     ├── claude_code.py  # MCP callback provider
-    └── jev.py          # TypeSafe Jev decision model (Cloudflare or TypeSafe)
+    ├── jev.py          # TypeSafe Jev decision model (Cloudflare or TypeSafe)
+    └── chain.py        # Provider chain with circuit breaker
 ```
 
 ## License

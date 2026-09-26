@@ -14,6 +14,14 @@ __all__ = ["Evaluator", "Verdict", "create_evaluator"]
 
 def create_evaluator(config: EvaluatorConfig) -> Evaluator:
     """Factory: instantiate the configured LLM provider."""
+    if config.chain:
+        from .chain import ChainEvaluator
+
+        return ChainEvaluator(
+            [(c.provider, create_evaluator(c)) for c in config.chain],
+            failures=config.breaker_failures,
+            cooldown=config.breaker_cooldown,
+        )
     if config.provider == "ollama":
         from .ollama import OllamaEvaluator
 

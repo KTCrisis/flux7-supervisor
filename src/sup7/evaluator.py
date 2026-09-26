@@ -33,11 +33,17 @@ class RuleEvaluator:
         self._llm: Evaluator | None = None
         if config.evaluator.provider:
             self._llm = create_evaluator(config.evaluator)
-            logger.info(
-                "LLM evaluation enabled — provider=%s model=%s",
-                config.evaluator.provider,
-                config.evaluator.model,
-            )
+            if config.evaluator.chain:
+                logger.info(
+                    "LLM evaluation enabled — chain=%s",
+                    " > ".join(c.provider for c in config.evaluator.chain),
+                )
+            else:
+                logger.info(
+                    "LLM evaluation enabled — provider=%s model=%s",
+                    config.evaluator.provider,
+                    config.evaluator.model,
+                )
 
     async def evaluate(self, approval: ApprovalContext) -> Decision:
         start = time.monotonic()
