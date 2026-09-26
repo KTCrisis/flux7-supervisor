@@ -7,7 +7,7 @@ name = "flux7-supervisor"
 version = "0.1.0"
 description = "Standalone supervisor agent for flux7-mesh — L1 evaluation with pluggable LLM providers"
 requires-python = ">=3.10"
-license = "MIT"
+license = "Apache-2.0"
 dependencies = [
     "flux7-mesh>=0.1.0",
     "flux7-memory>=0.4.0",

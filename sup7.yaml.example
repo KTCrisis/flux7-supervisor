@@ -34,7 +34,7 @@ admin:
   token: ""
 
 mcp_server:
-  enabled: true              # expose sup7.pending + sup7.verdict via MCP
+  enabled: true              # sup7_pending + sup7_verdict via MCP (not started yet, see README)
   transport: stdio           # stdio (registered in mesh7 config) or http
   port: 9095                 # only for http transport
 

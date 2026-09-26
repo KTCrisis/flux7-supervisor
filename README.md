@@ -106,7 +106,7 @@ project_dirs:
 
 ### Claude Code callback
 
-When `provider: claude-code`, sup7 exposes two MCP tools (`sup7.pending`, `sup7.verdict`). Register sup7 as an MCP server in your mesh config — Claude Code pulls pending evaluations and submits verdicts. See [docs](https://docs.flux7.art/sup7/claude-code-callback/).
+When `provider: claude-code`, sup7 is meant to expose two MCP tools (`sup7_pending`, `sup7_verdict`) that Claude Code pulls and answers. **Not functional yet:** the MCP server is defined (`mcp_server.py`) but not started by the runner, so use `ollama`, `anthropic` or `jev` meanwhile. See [docs](https://docs.flux7.art/sup7/claude-code-callback/).
 
 ### Provider chain
 
@@ -231,6 +231,6 @@ src/sup7/
 
 ## License
 
-MIT
+Apache 2.0, see [LICENSE](LICENSE).
 
 [docs.flux7.art/sup7](https://docs.flux7.art/sup7/) · [github.com/KTCrisis/flux7-supervisor](https://github.com/KTCrisis/flux7-supervisor)
