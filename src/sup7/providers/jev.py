@@ -100,13 +100,24 @@ class JevEvaluator:
 
     # ── evaluate ─────────────────────────────────────────────
     async def evaluate(self, approval: ApprovalContext) -> Verdict | None:
+        missing = [v for v in self._required_env() if not os.environ.get(v)]
+        if missing:
+            logger.warning("Jev: missing or unexported environment variable(s): %s", ", ".join(missing))
+            return None
         url, headers, payload = self._request(approval)
         try:
             resp = await self._client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
+        except httpx.HTTPError as e:  # network, timeout
+            logger.warning("Jev: request failed (%s)", type(e).__name__)
+            return None
+        if resp.status_code >= 400:
+            # never log the URL: it carries the Cloudflare account id
+            logger.warning("Jev: HTTP %s %s", resp.status_code, _error_message(resp))
+            return None
+        try:
             data = resp.json()
-        except Exception as e:  # network, HTTP status, invalid JSON
-            logger.warning("Jev API error: %s", e)
+        except ValueError:
+            logger.warning("Jev: response is not JSON")
             return None
         # Cloudflare wraps the model output in {"result": ..., "success": ...}
         if isinstance(data, dict) and "answers" not in data and isinstance(data.get("result"), dict):
@@ -146,5 +157,25 @@ class JevEvaluator:
             return Verdict("approve", confidence, f"Jev: approve ({signals})")
         return Verdict("escalate", confidence, f"Jev: escalate ({signals})")
 
+    def _required_env(self) -> list[str]:
+        if self._jev.backend == "cloudflare" and not self._jev.url:
+            return [self._jev.api_key_env, self._jev.account_id_env]
+        return [self._jev.api_key_env]
+
     async def close(self) -> None:
         await self._client.aclose()
+
+
+def _error_message(resp: httpx.Response) -> str:
+    """Short error text: Cloudflare {"errors": [{"message"}]} or TypeSafe {"error"}."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return resp.text[:120]
+    if isinstance(body, dict):
+        errors = body.get("errors")
+        if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+            return str(errors[0].get("message", ""))[:200]
+        if "error" in body:
+            return str(body["error"])[:200]
+    return ""

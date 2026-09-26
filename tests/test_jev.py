@@ -11,6 +11,12 @@ from sup7.providers import create_evaluator
 from sup7.providers.jev import JevEvaluator
 
 
+@pytest.fixture(autouse=True)
+def _credentials(monkeypatch):
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acc123")
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "cf-token")
+
+
 def _ctx(**kwargs) -> ApprovalContext:
     defaults = {"id": "a-1", "agent_id": "claude-code", "tool": "filesystem.write_file",
                 "params": {"path": "/home/u/project/notes.md", "content": "hello"}}
@@ -141,3 +147,19 @@ async def test_network_error_returns_none():
     def handler(request):
         raise httpx.ConnectError("down")
     assert await _evaluator(handler).evaluate(_ctx()) is None
+
+
+async def test_missing_credentials_return_none_without_calling(monkeypatch):
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN")
+    called = []
+    ev = _evaluator(lambda request: called.append(1) or httpx.Response(200, json={"answers": _answers()}))
+    assert await ev.evaluate(_ctx()) is None
+    assert called == []
+
+
+async def test_http_error_log_hides_account_id(caplog):
+    body = {"success": False, "errors": [{"message": "insufficient credits"}]}
+    with caplog.at_level("WARNING"):
+        assert await _evaluator(lambda request: httpx.Response(402, json=body)).evaluate(_ctx()) is None
+    assert "insufficient credits" in caplog.text and "402" in caplog.text
+    assert "acc123" not in caplog.text
