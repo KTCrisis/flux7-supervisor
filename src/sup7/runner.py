@@ -6,12 +6,15 @@ import asyncio
 import json
 import logging
 import signal
+import time
+from collections import deque
 
 from mesh7 import AgentMesh
 
 from sup7.config import SupervisorConfig
 from sup7.evaluator import RuleEvaluator
 from sup7.logger import DecisionLogger
+from sup7 import __version__
 from sup7.models import ApprovalContext
 
 logger = logging.getLogger(__name__)
@@ -37,6 +40,15 @@ class SupervisorRunner:
         self._semaphore = asyncio.Semaphore(10)
         self._mesh_alive = False
 
+        # Admin API state
+        self._paused = False
+        self._started_at = time.time()
+        self._recent: deque[dict] = deque(maxlen=config.admin.recent_decisions)
+        self._counts = {"approved": 0, "denied": 0, "escalated": 0}
+        self._last_decision_at: str | None = None
+        self._admin_server = None
+        self._admin_task: asyncio.Task | None = None
+
         self._mem7 = None
         if config.memory.enabled:
             from mem7 import Mem7
@@ -50,13 +62,14 @@ class SupervisorRunner:
             self._config.mesh.url,
             self._config.mesh.agent_id,
             self._config.poll.interval,
-            self._config.evaluator.provider,
+            " > ".join(c.provider for c in self._config.evaluator.chain) or self._config.evaluator.provider,
         )
 
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, self.shutdown)
 
+        await self._start_admin()
         await self._wait_for_mesh()
 
         if self._config.evaluator.provider == "claude-code":
@@ -67,6 +80,7 @@ class SupervisorRunner:
         try:
             await self._run()
         finally:
+            await self._stop_admin()
             await self._evaluator.close()
             self._logger.close()
             logger.info("sup7 stopped")
@@ -114,6 +128,10 @@ class SupervisorRunner:
 
     async def _run(self) -> None:
         while not self._shutdown:
+            if self._paused:
+                # approvals stay pending in the mesh, where a human decides
+                await asyncio.sleep(self._config.poll.interval)
+                continue
             try:
                 pending = self._poll()
                 if pending:
@@ -203,6 +221,7 @@ class SupervisorRunner:
                 logger.info("escalated %s (%s) — %s", approval_id, tool, decision.reasoning)
 
             self._logger.log(decision)
+            self._remember(decision)
             self._store_decision(decision)
 
     def _store_decision(self, decision) -> None:
@@ -225,6 +244,118 @@ class SupervisorRunner:
             self._mem7.store(key, value, tags=tags, agent=self._config.mesh.agent_id)
         except Exception:
             logger.debug("failed to store decision in memory")
+
+    # ── admin API ─────────────────────────────────────────────
+    async def _start_admin(self) -> None:
+        cfg = self._config.admin
+        if not cfg.enabled:
+            return
+        import uvicorn
+
+        from sup7.admin import create_admin_app
+
+        class _Server(uvicorn.Server):
+            # sup7 owns SIGINT/SIGTERM; uvicorn must not replace the handlers
+            def capture_signals(self):  # type: ignore[override]
+                from contextlib import nullcontext
+                return nullcontext()
+
+        app = create_admin_app(self, token=cfg.token)
+        self._admin_server = _Server(uvicorn.Config(app, host=cfg.host, port=cfg.port, log_level="warning"))
+        self._admin_task = asyncio.create_task(self._admin_server.serve())
+        logger.info("admin API on http://%s:%d", cfg.host, cfg.port)
+
+    async def _stop_admin(self) -> None:
+        if self._admin_server is None or self._admin_task is None:
+            return
+        self._admin_server.should_exit = True
+        try:
+            await asyncio.wait_for(self._admin_task, timeout=5)
+        except Exception:
+            self._admin_task.cancel()
+
+    def _remember(self, decision) -> None:
+        self._counts[decision.decision] = self._counts.get(decision.decision, 0) + 1
+        self._last_decision_at = decision.timestamp.isoformat()
+        self._recent.appendleft({
+            "timestamp": decision.timestamp.isoformat(),
+            "approval_id": decision.approval_id,
+            "agent_id": decision.agent_id,
+            "tool": decision.tool,
+            "decision": decision.decision,
+            "rule_matched": decision.rule_matched,
+            "reasoning": decision.reasoning,
+            "confidence": decision.confidence,
+            "evaluation_ms": decision.evaluation_ms,
+        })
+
+    def _providers(self) -> list[dict]:
+        ev = self._config.evaluator
+        llm = self._evaluator._llm
+        described = ev.chain or [ev]
+        states = llm.status() if hasattr(llm, "status") else [
+            {"name": ev.provider, "state": "ok", "consecutive_failures": 0, "skipped_for_s": 0}
+        ]
+        out = []
+        for cfg, st in zip(described, states):
+            detail = cfg.jev.backend if cfg.provider == "jev" else cfg.model
+            out.append({**st, "detail": detail})
+        return out
+
+    def status(self) -> dict:
+        return {
+            "version": __version__,
+            "state": "paused" if self._paused else "running",
+            "uptime_s": round(time.time() - self._started_at),
+            "mesh": {"url": self._config.mesh.url, "reachable": self._mesh_alive},
+            "memory": {"enabled": self._mem7 is not None},
+            "evaluator": {
+                "mode": "chain" if self._config.evaluator.chain else "single",
+                "providers": self._providers() if self._evaluator._llm else [],
+            },
+            "decisions": {**self._counts, "last_at": self._last_decision_at},
+        }
+
+    def config_summary(self) -> dict:
+        ev = self._config.evaluator
+
+        def provider(cfg):
+            d = {"provider": cfg.provider}
+            if cfg.provider == "jev":
+                j = cfg.jev
+                d.update(backend=j.backend, destructive_max=j.destructive_max, in_scope_min=j.in_scope_min,
+                         injection_max=j.injection_max, deny_min=j.deny_min, redact_params=j.redact_params)
+            elif cfg.provider in ("ollama", "anthropic"):
+                d["model"] = cfg.model
+            return d
+
+        return {
+            "rules": [
+                {"name": r.name, "condition": r.condition, "action": r.action, "confidence": r.confidence}
+                for r in self._config.rules
+            ],
+            "evaluator": {
+                "confidence_threshold": ev.confidence_threshold,
+                "breaker_failures": ev.breaker_failures,
+                "breaker_cooldown_s": ev.breaker_cooldown,
+                "providers": [provider(c) for c in (ev.chain or [ev])],
+            },
+            "poll_interval_s": self._config.poll.interval,
+            "project_dirs": self._config.project_dirs,
+        }
+
+    def recent_decisions(self, limit: int) -> list[dict]:
+        return list(self._recent)[:limit]
+
+    def pause(self) -> None:
+        if not self._paused:
+            logger.info("paused by admin API: approvals now go to humans")
+        self._paused = True
+
+    def resume(self) -> None:
+        if self._paused:
+            logger.info("resumed by admin API")
+        self._paused = False
 
     def shutdown(self) -> None:
         logger.info("shutdown requested")

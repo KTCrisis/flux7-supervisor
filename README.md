@@ -154,6 +154,27 @@ evaluator:
     redact_params: [content]         # parameter names never sent to the model
 ```
 
+## Admin API
+
+Off by default. When enabled, sup7 serves a small HTTP API that flux7-console uses to show and steer the supervisor:
+
+```yaml
+admin:
+  enabled: true
+  host: 127.0.0.1   # loopback; set a token before binding elsewhere
+  port: 9096
+  token: ""         # when set, required as "Authorization: Bearer <token>"
+```
+
+| Route | Does |
+|-------|------|
+| `GET /health` | liveness (no token) |
+| `GET /status` | running or paused, mesh reachability, decision counters, state of each provider (ok, failing, skipped by the breaker) |
+| `GET /config` | rules, thresholds, provider chain; never secrets |
+| `GET /decisions?limit=50` | most recent decisions with their reasoning |
+| `POST /pause` | stop evaluating: approvals stay pending in the mesh, for a human |
+| `POST /resume` | evaluate again |
+
 ## Rule conditions
 
 ```
@@ -197,6 +218,7 @@ src/sup7/
 ├── runner.py           # Async poll loop with graceful shutdown
 ├── models.py           # Verdict, Decision, ApprovalContext
 ├── mcp_server.py       # FastMCP server for Claude Code callback
+├── admin.py            # HTTP admin API (status, config, decisions, pause)
 ├── logger.py           # JSONL decision log
 └── providers/
     ├── base.py         # Provider interface

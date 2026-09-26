@@ -28,6 +28,11 @@ evaluator:
   #   account_id_env: CLOUDFLARE_ACCOUNT_ID
   #   redact_params: [content]
 
+admin:
+  enabled: false             # HTTP admin API for flux7-console (see README)
+  port: 9096
+  token: ""
+
 mcp_server:
   enabled: true              # expose sup7.pending + sup7.verdict via MCP
   transport: stdio           # stdio (registered in mesh7 config) or http

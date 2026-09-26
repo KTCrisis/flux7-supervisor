@@ -71,6 +71,21 @@ class ChainEvaluator:
         logger.warning("every provider in the chain failed: %s", ", ".join(passed))
         return None
 
+    def status(self) -> list[dict]:
+        """Per-provider state for the admin API: ok, failing or skipped."""
+        now = self._clock()
+        out = []
+        for i, (name, _) in enumerate(self._providers):
+            skipped_for = max(0.0, self._open_until[i] - now)
+            state = "skipped" if skipped_for > 0 else ("failing" if self._failures[i] else "ok")
+            out.append({
+                "name": name,
+                "state": state,
+                "consecutive_failures": self._failures[i],
+                "skipped_for_s": round(skipped_for),
+            })
+        return out
+
     async def close(self) -> None:
         for _, provider in self._providers:
             await provider.close()

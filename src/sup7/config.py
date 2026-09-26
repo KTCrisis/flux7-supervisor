@@ -85,6 +85,19 @@ class MCPServerConfig(BaseModel):
     port: int = 9095
 
 
+
+class AdminConfig(BaseModel):
+    """HTTP admin API (status, config, recent decisions, pause/resume).
+
+    Off by default. Binds to loopback; set a token before binding elsewhere.
+    """
+
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 9096
+    token: str = ""  # required as "Authorization: Bearer <token>" when set
+    recent_decisions: int = 200  # kept in memory for GET /decisions
+
 class PollConfig(BaseModel):
     interval: float = 2.0
     tool_scopes: list[str] = Field(default_factory=list)
@@ -110,6 +123,7 @@ class SupervisorConfig(BaseModel):
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     evaluator: EvaluatorConfig = Field(default_factory=EvaluatorConfig)
     mcp_server: MCPServerConfig = Field(default_factory=MCPServerConfig)
+    admin: AdminConfig = Field(default_factory=AdminConfig)
     poll: PollConfig = Field(default_factory=PollConfig)
     rules: list[RuleEntry] = Field(default_factory=list)
     project_dirs: list[str] = Field(default_factory=list)
