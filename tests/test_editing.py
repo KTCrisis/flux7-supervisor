@@ -183,3 +183,15 @@ def test_write_keeps_the_file_mode(setup):
     assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
     files.write("questions/finance.yaml", FINANCE, "new")
     assert stat.S_IMODE(os.stat(qdir / "finance.yaml").st_mode) == 0o600
+
+
+def test_two_edits_in_one_second_keep_both_backups(setup):
+    path, qdir = setup
+    files = ConfigFiles(str(path), load_config(str(path)))
+    original = path.read_text()
+    for n in (1, 2):
+        text, fingerprint = files.read("config")
+        files.write("config", text + f"# edit {n}\n", fingerprint)
+    backups = sorted(path.parent.glob("sup7.yaml.bak-*"))
+    assert len(backups) == 2
+    assert backups[0].read_text() == original  # the first backup is the original version

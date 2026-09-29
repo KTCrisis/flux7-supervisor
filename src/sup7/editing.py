@@ -175,9 +175,9 @@ class ConfigFiles:
             config = validate(text)
         else:
             config = validate(self.config_path.read_text(), {str(ref.path): text})
-        stamp = time.strftime("%Y%m%d-%H%M%S")
-        if current is not None:
-            shutil.copy2(ref.path, f"{ref.path}.bak-{stamp}")
+        backup = _unique_backup(ref.path) if current is not None else None
+        if backup:
+            shutil.copy2(ref.path, backup)
         tmp = ref.path.with_name(f".{ref.path.name}.tmp")
         # the file holds tokens: the new version keeps the old one's mode (600),
         # a new file gets 600; created closed, never readable in between
@@ -189,7 +189,18 @@ class ConfigFiles:
         os.replace(tmp, ref.path)
         return config, {"file": file_id, "path": str(ref.path),
                         "sha_before": sha(current) if current is not None else None,
-                        "sha_after": sha(text), "backup": f"{ref.path}.bak-{stamp}" if current else None}
+                        "sha_after": sha(text), "backup": str(backup) if backup else None}
+
+
+def _unique_backup(path: Path) -> Path:
+    """A backup name not taken yet: two edits within one second must not
+    overwrite each other's backup (seen in mesh7 on 2026-09-29)."""
+    base = f"{path}.bak-{time.strftime('%Y%m%d-%H%M%S')}"
+    for i in range(100):
+        candidate = Path(base if i == 0 else f"{base}-{i}")
+        if not candidate.exists():
+            return candidate
+    raise EditError(500, f"no free backup name next to {path}")
 
 
 def split_restart(old: SupervisorConfig, new: SupervisorConfig) -> tuple[SupervisorConfig, list[str]]:
