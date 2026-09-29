@@ -48,6 +48,8 @@ class JevConfig(BaseModel):
     deny_min: float = 0.9  # deny only when a harm is this probable and the call is out of scope
     project_min: float = 0.7  # above: the call acts in the project, overwriting is not a harm
     redact_params: list[str] = Field(default_factory=list)  # param names never sent
+    # question sets (YAML files); empty = the socle shipped with sup7
+    questions: list[str] = Field(default_factory=list)
 
 
 class EvaluatorConfig(BaseModel):

@@ -130,6 +130,32 @@ Providers are tried in order; the first one that answers gives the verdict (an `
 
 Jev does not generate text: it answers typed questions about a state, each with a probability. sup7 asks six narrow factual questions (noul: probability of yes) about the pending call and decides in code, fail-closed:
 
+The questions are YAML, not code. sup7 ships a base set, [`src/sup7/data/socle.yaml`](src/sup7/data/socle.yaml); business packs are extra files listed under `evaluator.jev.questions`, each applying to some agents or tools, asked in the same call as the base set:
+
+```yaml
+# ~/.sup7/questions/finance.yaml
+pack: finance
+applies_to: ["agent:compta-*", "tool:bank.*"]   # empty = every call
+questions:
+  payment:
+    type: noul                # noul (yes/no probability), choice or score
+    group: danger             # danger, context or manipulation
+    threshold: 0.1            # default: destructive_max (danger), injection_max (manipulation)
+    instructions: The call initiates or approves a payment.
+    criteria:
+      true: Creates or releases a payment order
+      false: Reads balances or prepares a draft
+```
+
+```yaml
+evaluator:
+  provider: jev
+  jev:
+    questions: [~/.sup7/questions/socle.yaml, ~/.sup7/questions/finance.yaml]   # empty = the shipped socle
+```
+
+Only `type`, `instructions` and `criteria` are sent to Jev; `group`, `role` (`scope` on the question that gates approval and deny), `threshold` and `ignore_when` stay in sup7. Every set is validated when sup7 starts: a set that loads is one sup7 can decide with. The base set:
+
 | Question | Type | Asks |
 |----------|------|------|
 | `deletes` | noul | deletes files, directories or records |
