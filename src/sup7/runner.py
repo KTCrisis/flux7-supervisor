@@ -7,6 +7,7 @@ import json
 import logging
 import signal
 import time
+import uuid
 from collections import deque
 
 from mesh7 import AgentMesh
@@ -384,6 +385,48 @@ class SupervisorRunner:
             })
             break  # one Jev entry per chain in practice
         return out
+
+    # ── synchronous evaluation (admin API) ────────────────────
+    async def evaluate_call(self, call: dict) -> dict:
+        """Judge one tool call on demand, outside the mesh queue.
+
+        The same rules, chain, questions and thresholds as a polled approval,
+        for any enforcement point (an Agent SDK hook, a gateway plugin): sup7
+        advises, the caller enforces, and routes an escalation to its humans.
+        Nothing is resolved in any mesh.
+        """
+        tool = call.get("tool")
+        params = call.get("params", {})
+        if not isinstance(tool, str) or not tool or not isinstance(params, dict):
+            raise ValueError('expected {"tool": "<name>", "params": {...}}')
+        context = ApprovalContext(
+            id=str(call.get("id") or f"eval-{uuid.uuid4().hex[:16]}"),
+            agent_id=str(call.get("agent_id", "")),
+            tool=tool,
+            params=params,
+            policy_rule=str(call.get("policy_rule", "")),
+            injection_risk=bool(call.get("injection_risk", False)),
+            recent_traces=list(call.get("recent_traces") or [])[:5],
+            active_grants=list(call.get("active_grants") or []),
+        )
+        if self._paused:
+            # paused means "no automatic decision": the caller's human decides
+            return {"id": context.id, "decision": "escalate", "confidence": 0.0,
+                    "reasoning": "sup7 is paused: every call goes to a human", "rule_matched": None,
+                    "evaluator": None, "evaluation_ms": 0}
+        decision = await self._evaluator.evaluate(context)
+        decision.via = "evaluate"
+        self._logger.log(decision)
+        self._remember(decision)
+        return {
+            "id": context.id,
+            "decision": {"approved": "approve", "denied": "deny"}.get(decision.decision, "escalate"),
+            "confidence": decision.confidence,
+            "reasoning": decision.reasoning,
+            "rule_matched": decision.rule_matched,
+            "evaluator": decision.evaluator,
+            "evaluation_ms": decision.evaluation_ms,
+        }
 
     # ── editing (admin API) ───────────────────────────────────
     def _files(self):

@@ -204,6 +204,22 @@ admin:
 | `POST /pause` | stop evaluating: approvals stay pending in the mesh, for a human |
 | `POST /resume` | evaluate again |
 
+### Judging a call on demand: `POST /evaluate`
+
+sup7 can also be used without the mesh queue, as a decision service for any enforcement point (a Claude Agent SDK `PreToolUse` hook, a gateway plugin):
+
+```bash
+curl -s -X POST localhost:9096/evaluate -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"agent_id": "bot", "tool": "Bash", "params": {"command": "rm -rf ~/.ssh"}, "recent_traces": []}'
+```
+```json
+{"id": "eval-…", "decision": "deny", "confidence": 0.99, "rule_matched": "jev:cloudflare",
+ "reasoning": "[jev] Jev jev-1.13.0 q=…: deny (destructive 0.99 (deletes 0.99 …) …)",
+ "evaluator": {"model": "jev-1.13.0", "questions": "…", "thresholds": {…}}, "evaluation_ms": 310}
+```
+
+The same rules, provider chain, questions and thresholds as a polled approval; `recent_traces` (up to 5), `active_grants`, `injection_risk` and `policy_rule` are optional context. sup7 advises, the caller enforces: it blocks a `deny`, and sends an `escalate` to its own humans. Nothing is resolved in any mesh; the decision is logged with `"via": "evaluate"`. While sup7 is paused, every call answers `escalate`. Without flux7-mesh, the caller loses what the mesh adds around the judgment: signed traces, the human queue, grants, precedents, the approval wait.
+
 ### Editing from the console
 
 `GET /files` lists the editable files (`config` for sup7.yaml, `questions/<file>.yaml` for each question set), `GET /files/{id}` returns one as text with its fingerprint in `ETag` (token values masked), `PUT /files/{id}` replaces it. A write:

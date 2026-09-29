@@ -33,6 +33,7 @@ class Decision:
     evaluation_ms: int
     injection_risk: bool = False
     evaluator: dict | None = None  # provenance of an LLM verdict (Verdict.meta)
+    via: str = "mesh"  # "mesh": an approval polled from flux7-mesh; "evaluate": POST /evaluate
 
     @staticmethod
     def now() -> datetime:

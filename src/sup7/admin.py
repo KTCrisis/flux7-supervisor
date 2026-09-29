@@ -10,6 +10,9 @@
   GET  /files/{id}         one file as text (token values masked), ETag = fingerprint
   PUT  /files/{id}         replace it: If-Match required ("new" to create a question set);
                            validated whole, backed up, applied without restart where possible
+  POST /evaluate           judge one tool call on demand: {"agent_id", "tool", "params",
+                           "recent_traces"?, ...} -> {"decision": approve|deny|escalate, ...};
+                           sup7 advises, the caller enforces
   GET  /bench/sets         labelled case sets (bench.dir/sets/*.jsonl)
   GET  /bench/runs         evaluation runs, newest first; GET /bench/runs/{id} with its results
   GET  /bench/estimate     ?set=: cost of a replay, and whether a free recompute is possible
@@ -50,6 +53,7 @@ class AdminTarget(Protocol):
     def bench_estimate(self, set_name: str) -> dict: ...
     def bench_start(self, set_name: str, mode: str) -> dict: ...
     def bench_progress(self) -> dict: ...
+    async def evaluate_call(self, call: dict) -> dict: ...
 
 
 def create_admin_app(target: AdminTarget, token: str = "") -> Starlette:
@@ -120,6 +124,18 @@ def create_admin_app(target: AdminTarget, token: str = "") -> Starlette:
     async def bench_progress(request: Request):
         return answer(target.bench_progress)
 
+    async def evaluate(request: Request):
+        try:
+            call = await request.json()
+        except ValueError:
+            return JSONResponse({"error": 'expected JSON {"tool", "params", ...}'}, status_code=400)
+        if not isinstance(call, dict):
+            return JSONResponse({"error": 'expected a JSON object {"tool", "params", ...}'}, status_code=400)
+        try:
+            return JSONResponse(await target.evaluate_call(call))
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+
     async def bench_start(request: Request):
         # a replay spends credits: starting a run needs the token, like an edit
         if not token:
@@ -166,6 +182,7 @@ def create_admin_app(target: AdminTarget, token: str = "") -> Starlette:
         Route("/files", guarded(files), methods=["GET"]),
         Route("/files/{file_id:path}", guarded(read_file), methods=["GET"]),
         Route("/files/{file_id:path}", guarded(write_file), methods=["PUT"]),
+        Route("/evaluate", guarded(evaluate), methods=["POST"]),
         Route("/bench/sets", guarded(bench_sets), methods=["GET"]),
         Route("/bench/runs", guarded(bench_runs), methods=["GET"]),
         Route("/bench/runs", guarded(bench_start), methods=["POST"]),
