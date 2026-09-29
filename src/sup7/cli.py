@@ -69,7 +69,7 @@ def cmd_bench_replay(args: argparse.Namespace) -> None:
         with open(args.exclude_file) as f:
             keywords += [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
     with open(args.traces, errors="ignore") as f:
-        sel = bench.select(f, keywords, agents=args.agent)
+        sel = bench.select(f, keywords, agents=args.agent, allow_repos=args.allow_repo)
     cases = sel.cases[: args.limit] if args.limit else sel.cases
 
     print(f"{len(sel.cases)} cases kept, {sum(sel.excluded.values())} calls excluded")
@@ -116,6 +116,8 @@ def main() -> None:
     rp.add_argument("--exclude", action="append", default=[], metavar="KEYWORD",
                     help="drop any call whose tool name or parameters contain this keyword (repeatable)")
     rp.add_argument("--exclude-file", help="file with one exclusion keyword per line")
+    rp.add_argument("--allow-repo", action="append", metavar="DIR",
+                    help="allowlist: keep only calls naming ~/DIR (repeatable); query tools may go without a path")
     rp.add_argument("--agent", action="append", help="keep only this agent (repeatable)")
     rp.add_argument("--limit", type=int, help="replay at most this many cases")
     rp.add_argument("--concurrency", type=int, default=8)

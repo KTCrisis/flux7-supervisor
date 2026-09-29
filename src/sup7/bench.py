@@ -39,6 +39,29 @@ SECRET_PATTERNS = [
 
 LABELS = {"allow": "approve", "deny": "deny", "human_approval": "escalate"}
 
+# Allowlist mode. A reference to a directory under the home (or to /tmp) in
+# the parameters; the first path segment decides.
+HOME_REF = re.compile(r"(?:~|/home/[a-z0-9_-]+)/([A-Za-z0-9_.-]+)")
+TMP_REF = re.compile(r"(?<![A-Za-z0-9_])/tmp/")
+NEUTRAL = {"py_env", "go", ".local", ".cache"}  # tooling, not data
+# Tools whose parameters are a query, not a file or free text: may go without
+# any path. Every other tool needs an allowed repository in its parameters.
+QUERY_TOOLS = ("searxng.", "WebFetch", "WebSearch", "ToolSearch")
+
+
+def allowed(tool: str, blob: str, repos: set[str]) -> str | None:
+    """None if the call may be sent under the allowlist, else why not."""
+    if TMP_REF.search(blob):
+        return "allowlist: /tmp path"
+    tops = {m.group(1) for m in HOME_REF.finditer(blob)} - NEUTRAL
+    if tops - repos:
+        return "allowlist: path outside allowed repos"
+    if tops:
+        return None
+    if tool.startswith(QUERY_TOOLS):
+        return None
+    return "allowlist: no allowed repo named"
+
 
 @dataclass
 class Case:
@@ -79,8 +102,13 @@ def _brief(entry: dict) -> dict:
 
 
 def select(lines, keywords: list[str], agents: list[str] | None = None,
-           tools: list[str] | None = None) -> Selection:
-    """Build replayable cases from trace lines, dropping any call that mentions a keyword."""
+           tools: list[str] | None = None, allow_repos: list[str] | None = None) -> Selection:
+    """Build replayable cases from trace lines, dropping any call that mentions a keyword.
+
+    With allow_repos, a call is kept only if allowed() accepts it: keywords
+    then act as a second barrier.
+    """
+    repos = set(allow_repos or [])
     sel = Selection()
     kw = [k.lower() for k in keywords]
     history: dict[str, list[dict]] = defaultdict(list)
@@ -95,6 +123,10 @@ def select(lines, keywords: list[str], agents: list[str] | None = None,
         if policy not in LABELS:
             sel.skipped[f"policy {policy or 'none'}"] += 1
             continue
+        if policy == "deny" and e.get("policy_rule") == "default":
+            # denied because the tool is simply absent from the policy: not a danger label
+            sel.skipped["default deny (unlisted tool)"] += 1
+            continue
         if agents and e.get("agent_id") not in agents:
             sel.skipped["agent filtered"] += 1
             continue
@@ -106,8 +138,12 @@ def select(lines, keywords: list[str], agents: list[str] | None = None,
         # tool name included, so a keyword can drop a whole family (e.g. "gmail")
         blob = (e.get("tool", "") + " " + json.dumps(e.get("params"), ensure_ascii=False)).lower()
         hit = next((k for k in kw if k in blob), None)
-        if hit:
-            sel.excluded[hit] += 1
+        why = allowed(e.get("tool", ""), blob, repos) if allow_repos else None
+        if hit or why:
+            if hit:
+                sel.excluded[hit] += 1
+            else:
+                sel.skipped[why] += 1
             # an excluded call must not leak through the next calls' recent activity
             history[session].append({"tool": e.get("tool", ""), "params": "[excluded]"})
             continue

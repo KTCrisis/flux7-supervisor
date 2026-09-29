@@ -108,3 +108,25 @@ async def test_replay_applies_threshold_and_flags_cases(monkeypatch):
     assert len(out.getvalue().splitlines()) == 4
     text = bench.report(list(results.values()))
     assert "| approve | 1 | 1 | 1 | 1 |" in text and "2 to review" in text
+
+
+@pytest.mark.parametrize("tool, params, kept", [
+    ("Bash", {"command": "cd ~/flux7-mesh && go test ./..."}, True),
+    ("Bash", {"command": "/home/fluxart/py_env/bin/python -m pytest ~/flux7-supervisor"}, True),  # py_env is neutral
+    ("Bash", {"command": "sed -n 1,10p supabase/migrations/0001.sql"}, False),  # relative path: no repo named
+    ("Bash", {"command": "cd ~/flux7-mesh && cat ~/work/plan.md"}, False),  # one path outside
+    ("Bash", {"command": "cat /tmp/claude-1000/x/scratchpad/bp_v3.txt"}, False),
+    ("Read", {"file_path": "/home/fluxart/staffd/app/page.tsx"}, False),
+    ("searxng.searxng_web_search", {"query": "jev typesafe"}, True),
+    ("SubagentHandback", {"message": "audit report"}, False),  # free text
+])
+def test_allowlist(tool, params, kept):
+    sel = bench.select([_line(tool=tool, params=params)], [], allow_repos=["flux7-mesh", "flux7-supervisor"])
+    assert (len(sel.cases) == 1) is kept
+
+
+def test_default_deny_is_not_a_danger_label():
+    line = json.dumps({"trace_id": "x", "agent_id": "claude", "tool": "ListAgents", "params": {},
+                       "policy": "deny", "policy_rule": "default"})
+    sel = bench.select([line], [])
+    assert sel.cases == [] and sel.skipped["default deny (unlisted tool)"] == 1
