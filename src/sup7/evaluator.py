@@ -31,7 +31,9 @@ class RuleEvaluator:
             self._compiled.append((rule, pred))
 
         self._llm: Evaluator | None = None
-        if config.evaluator.provider:
+        if not config.evaluator.chain and config.evaluator.provider == "none":
+            logger.info("LLM evaluation disabled — rules only, unmatched calls escalate")
+        else:
             self._llm = create_evaluator(config.evaluator)
             if config.evaluator.chain:
                 logger.info(

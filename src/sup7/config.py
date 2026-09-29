@@ -49,7 +49,7 @@ class JevConfig(BaseModel):
 
 
 class EvaluatorConfig(BaseModel):
-    provider: Literal["ollama", "anthropic", "claude-code", "jev"] = "ollama"
+    provider: Literal["ollama", "anthropic", "claude-code", "jev", "none"] = "ollama"  # none: rules only
     model: str = "qwen3:14b"
     url: str = "http://localhost:11434"
     timeout: float = 30.0

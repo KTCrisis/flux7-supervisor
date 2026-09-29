@@ -59,7 +59,7 @@ memory:
   store_decisions: true
 
 evaluator:
-  provider: ollama           # ollama | anthropic | claude-code | jev
+  provider: ollama           # ollama | anthropic | claude-code | jev | none (rules only)
   model: qwen3:14b
   url: http://localhost:11434
   timeout: 30

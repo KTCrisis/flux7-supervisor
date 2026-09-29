@@ -51,7 +51,8 @@ def cmd_status(args: argparse.Namespace) -> None:
     else:
         print("flux7-memory: disabled")
 
-    print(f"evaluator: {config.evaluator.provider} ({config.evaluator.model})")
+    ev = config.evaluator
+    print(f"evaluator: {ev.provider}" + (f" ({ev.model})" if ev.provider != "none" else ""))
     print(f"rules: {len(config.rules)}")
 
     if not mesh_ok:
