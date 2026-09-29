@@ -153,3 +153,21 @@ async def test_decision_carries_evaluator_provenance(tmp_path):
     log = DecisionLogger(str(tmp_path / "d.jsonl"))
     log.open(); log.log(decision); log.close()
     assert json.loads((tmp_path / "d.jsonl").read_text())["evaluator"] == meta
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry, expected", [
+    ({"confidence_threshold": 0.5}, "approved"),  # the chain entry's own threshold
+    ({}, "escalated"),  # unset: the top-level 0.8 applies
+])
+async def test_chain_entry_confidence_threshold(entry, expected):
+    from sup7.models import Verdict
+    from sup7.providers.chain import ChainEvaluator
+
+    config = SupervisorConfig(evaluator=EvaluatorConfig(
+        confidence_threshold=0.8, chain=[EvaluatorConfig(provider="jev", **entry)]))
+    evaluator = RuleEvaluator(config)
+    evaluator._llm = ChainEvaluator([("jev", _Stub(Verdict("approve", 0.65, "Jev: approve")))],
+                                    labels=["jev:cloudflare"])
+    decision = await evaluator.evaluate(_ctx(tool="unknown.tool"))
+    assert decision.decision == expected

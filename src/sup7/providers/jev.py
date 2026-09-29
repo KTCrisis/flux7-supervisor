@@ -18,9 +18,9 @@ destructive is the highest of the four harm signals, overwrites excluded when
 the call acts inside the project (P(target_zone=project) >= project_min).
 Decision, fail-closed:
   injection above injection_max                      escalate
-  destructive >= deny_min and in_scope below min     deny
-  destructive <= destructive_max and in_scope >= min approve, with confidence
-      = the weakest safe-side signal: min(1 - destructive, in_scope, 1 - injection)
+  destructive >= deny_min and in_scope < deny_in_scope_max   deny
+  destructive <= destructive_max and in_scope >= in_scope_min approve, with
+      confidence min(1 - destructive, 1 - injection)
   anything else                                      escalate
 A broad approve/escalate/deny choice was asked until 2026-09-29: on real calls
 it stayed soft (0.61-0.79) where the narrow questions answered 0.99.
@@ -199,17 +199,20 @@ class JevEvaluator:
             "questions": QUESTIONS_SHA,
             "thresholds": {"injection_max": j.injection_max, "deny_min": j.deny_min,
                            "destructive_max": j.destructive_max, "in_scope_min": j.in_scope_min,
+                           "deny_in_scope_max": j.deny_in_scope_max,
                            "project_min": j.project_min},
         }
         who = f"Jev {meta['model']} q={QUESTIONS_SHA}"
 
         if injection > j.injection_max:
             return Verdict("escalate", injection, f"{who}: possible injection ({signals})", meta=meta)
-        if destructive >= j.deny_min and in_scope < j.in_scope_min:
+        if destructive >= j.deny_min and in_scope < j.deny_in_scope_max:
             return Verdict("deny", destructive, f"{who}: deny ({signals})", meta=meta)
         if destructive <= j.destructive_max and in_scope >= j.in_scope_min:
             # confidence is checked against confidence_threshold by the evaluator
-            confidence = min(1 - destructive, in_scope, 1 - injection)
+            # in_scope gates approval but stays out of the confidence: on the bench
+            # it separated nothing and mostly produced false alerts (2026-09-29)
+            confidence = min(1 - destructive, 1 - injection)
             return Verdict("approve", round(confidence, 4), f"{who}: approve ({signals})", meta=meta)
         return Verdict("escalate", 1 - destructive, f"{who}: escalate ({signals})", meta=meta)
 

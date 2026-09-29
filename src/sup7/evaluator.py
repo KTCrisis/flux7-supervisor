@@ -106,11 +106,12 @@ class RuleEvaluator:
         decision_str = {"approve": "approved", "deny": "denied", "escalate": "escalated"}
         action = decision_str.get(verdict.action, "escalated")
 
-        if action != "escalated" and verdict.confidence < self._config.evaluator.confidence_threshold:
+        threshold = self._threshold(verdict.source)
+        if action != "escalated" and verdict.confidence < threshold:
             action = "escalated"
             reasoning = (
                 f"LLM confidence {verdict.confidence:.2f} below threshold "
-                f"{self._config.evaluator.confidence_threshold}: {verdict.reasoning}"
+                f"{threshold}: {verdict.reasoning}"
             )
         else:
             reasoning = verdict.reasoning
@@ -123,6 +124,18 @@ class RuleEvaluator:
             confidence=verdict.confidence,
             evaluator=verdict.meta,
         )
+
+    def _threshold(self, source: str) -> float:
+        """Confidence threshold for the provider that answered.
+
+        A chain entry may set its own confidence_threshold: confidences are
+        not comparable across models (a Jev confidence is 1 - harm, an LLM's
+        is self-reported). Unset, the top-level threshold applies.
+        """
+        for c in self._config.evaluator.chain:
+            if provider_label(c) == source and "confidence_threshold" in c.model_fields_set:
+                return c.confidence_threshold
+        return self._config.evaluator.confidence_threshold
 
     async def close(self) -> None:
         if self._llm:

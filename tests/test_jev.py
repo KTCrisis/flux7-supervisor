@@ -114,14 +114,25 @@ async def test_redacted_params_never_sent():
 # ── combination ───────────────────────────────────────────────
 async def test_approve_when_all_signals_agree():
     v = await _evaluator(_ok({"answers": _answers()})).evaluate(_ctx())
-    # confidence = weakest safe-side signal: min(1 - 0.05, 0.9, 1 - 0.02)
-    assert v.action == "approve" and v.confidence == 0.9
+    # confidence = min(1 - destructive, 1 - injection) = min(0.95, 0.98)
+    assert v.action == "approve" and v.confidence == 0.95
     assert "destructive 0.05" in v.reasoning  # probabilities are kept for audit
 
 
 async def test_approve_confidence_is_weakest_signal():
-    v = await _evaluator(_ok({"answers": _answers(destructive=0.15, in_scope=0.95)})).evaluate(_ctx())
-    assert v.action == "approve" and v.confidence == 0.85
+    v = await _evaluator(_ok({"answers": _answers(destructive=0.15, in_scope=0.75)})).evaluate(_ctx())
+    assert v.action == "approve" and v.confidence == 0.85  # in_scope gates, it does not lower confidence
+
+
+async def test_scope_floor_and_deny_scope_are_separate():
+    # approval floor lowered to 0.3: a call at in_scope 0.5 is approved, not denied
+    ans = _answers(destructive=0.1, in_scope=0.5)
+    v = await _evaluator(_ok({"answers": ans}), in_scope_min=0.3).evaluate(_ctx())
+    assert v.action == "approve"
+    # a certain harm out of scope is still denied through deny_in_scope_max
+    ans = _answers(destructive=0.97, in_scope=0.5)
+    v = await _evaluator(_ok({"answers": ans}), in_scope_min=0.3).evaluate(_ctx())
+    assert v.action == "deny"
 
 
 async def test_overwrite_inside_the_project_is_not_a_harm():
@@ -223,7 +234,8 @@ async def test_verdict_records_model_questions_and_thresholds():
     assert v.meta["model"] == "jev-1.13.0"
     assert v.meta["questions"] == QUESTIONS_SHA and len(QUESTIONS_SHA) == 12
     assert v.meta["thresholds"] == {"injection_max": 0.5, "deny_min": 0.9,
-                                    "destructive_max": 0.2, "in_scope_min": 0.7, "project_min": 0.7}
+                                    "destructive_max": 0.2, "in_scope_min": 0.7,
+                                    "deny_in_scope_max": 0.7, "project_min": 0.7}
     # the reasoning carries it too, so the mesh trace (which gets only the reasoning) keeps it
     assert v.reasoning.startswith(f"Jev jev-1.13.0 q={QUESTIONS_SHA}: approve")
 

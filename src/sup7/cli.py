@@ -73,7 +73,8 @@ def cmd_bench_replay(args: argparse.Namespace) -> None:
     with open(args.traces, errors="ignore") as f:
         # allowed repositories are the project for target_zone
         home = os.path.expanduser("~")
-        projects = [os.path.join(home, r) for r in (args.allow_repo or [])]
+        projects = [os.path.expanduser(p) for p in args.project] if args.project else \
+            [os.path.join(home, r) for r in (args.allow_repo or [])]
         sel = bench.select(f, keywords, agents=args.agent, allow_repos=args.allow_repo, project_dirs=projects)
     cases = sel.cases[: args.limit] if args.limit else sel.cases
 
@@ -130,6 +131,8 @@ def main() -> None:
     rp.add_argument("--exclude-file", help="file with one exclusion keyword per line")
     rp.add_argument("--allow-repo", action="append", metavar="DIR",
                     help="allowlist: keep only calls naming ~/DIR (repeatable); query tools may go without a path")
+    rp.add_argument("--project", action="append", metavar="DIR",
+                    help="project directory given to the evaluator (repeatable; default: the allowed repos)")
     rp.add_argument("--agent", action="append", help="keep only this agent (repeatable)")
     rp.add_argument("--limit", type=int, help="replay at most this many cases")
     rp.add_argument("--concurrency", type=int, default=4)
