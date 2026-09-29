@@ -322,10 +322,14 @@ class SupervisorRunner:
         ev = self._config.evaluator
 
         def provider(cfg):
-            d = {"provider": cfg.provider}
+            # the threshold that applies to this provider's verdicts: its own when set
+            own = cfg is not ev and "confidence_threshold" in cfg.model_fields_set
+            d = {"provider": cfg.provider,
+                 "confidence_threshold": cfg.confidence_threshold if own else ev.confidence_threshold}
             if cfg.provider == "jev":
                 j = cfg.jev
                 d.update(backend=j.backend, destructive_max=j.destructive_max, in_scope_min=j.in_scope_min,
+                         deny_in_scope_max=j.deny_in_scope_max, project_min=j.project_min,
                          injection_max=j.injection_max, deny_min=j.deny_min, redact_params=j.redact_params)
             elif cfg.provider in ("ollama", "anthropic"):
                 d["model"] = cfg.model

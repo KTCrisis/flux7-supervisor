@@ -94,13 +94,17 @@ def test_runner_status_single_provider():
 
 
 def test_runner_status_chain_and_config_without_secrets():
-    r = _runner(chain=[{"provider": "jev", "jev": {"api_key_env": "CF_TOKEN"}}, {"provider": "ollama"}])
+    r = _runner(chain=[{"provider": "jev", "confidence_threshold": 0.6, "jev": {"api_key_env": "CF_TOKEN"}},
+                       {"provider": "ollama"}])
     st = r.status()
     assert st["evaluator"]["mode"] == "chain"
     assert [p["name"] for p in st["evaluator"]["providers"]] == ["jev", "ollama"]
     assert st["evaluator"]["providers"][0]["state"] == "ok"
     cfg = r.config_summary()
     assert cfg["evaluator"]["providers"][0]["backend"] == "cloudflare"
+    # each provider shows the threshold that really applies to it
+    assert cfg["evaluator"]["providers"][0]["confidence_threshold"] == 0.6
+    assert cfg["evaluator"]["providers"][1]["confidence_threshold"] == cfg["evaluator"]["confidence_threshold"]
     assert "CF_TOKEN" not in str(cfg) and "api_key_env" not in str(cfg)
     assert cfg["rules"][0]["name"] == "reads"
 
