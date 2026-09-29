@@ -8,7 +8,7 @@ import pytest
 from sup7.config import EvaluatorConfig, JevConfig
 from sup7.models import ApprovalContext
 from sup7.providers import create_evaluator
-from sup7.providers.jev import JevEvaluator
+from sup7.providers.jev import DESTRUCTIVE, JevEvaluator
 
 
 @pytest.fixture(autouse=True)
@@ -24,11 +24,14 @@ def _ctx(**kwargs) -> ApprovalContext:
     return ApprovalContext(**defaults)
 
 
-def _answers(choice="approve", probs=None, confidence=0.9, destructive=0.05, in_scope=0.9, injection=0.02):
+def _answers(choice="approve", probs=None, confidence=0.9, destructive=0.05, in_scope=0.9, injection=0.02,
+             harm="deletes"):
+    """destructive sets one of the four harm signals (harm), the others stay low."""
     probs = probs or {"approve": 0.9, "escalate": 0.08, "deny": 0.02}
+    harms = {k: {"type": "noul", "noul": destructive if k == harm else 0.01} for k in DESTRUCTIVE}
     return {
         "decision": {"type": "choice", "choice": choice, "confidence": confidence, "probabilities": probs},
-        "destructive": {"type": "noul", "noul": destructive},
+        **harms,
         "in_scope": {"type": "noul", "noul": in_scope},
         "injection": {"type": "noul", "noul": injection},
     }
@@ -64,7 +67,7 @@ async def test_cloudflare_request_shape(monkeypatch):
     assert seen["url"] == "https://api.cloudflare.com/client/v4/accounts/acc123/ai/run"
     assert seen["auth"] == "Bearer cf-token"
     assert seen["body"]["model"] == "typesafe/jev"
-    assert set(seen["body"]["input"]["questions"]) == {"decision", "destructive", "in_scope", "injection"}
+    assert set(seen["body"]["input"]["questions"]) == {"decision", *DESTRUCTIVE, "in_scope", "injection"}
     assert seen["body"]["input"]["state"]["tool"] == "filesystem.write_file"
     assert verdict.action == "approve"
 
@@ -114,9 +117,11 @@ async def test_approve_when_all_signals_agree():
     assert "destructive 0.05" in v.reasoning  # probabilities are kept for audit
 
 
-async def test_destructive_blocks_approval():
-    v = await _evaluator(_ok({"answers": _answers(destructive=0.6)})).evaluate(_ctx())
+@pytest.mark.parametrize("harm", DESTRUCTIVE)
+async def test_any_harm_blocks_approval(harm):
+    v = await _evaluator(_ok({"answers": _answers(destructive=0.6, harm=harm)})).evaluate(_ctx())
     assert v.action == "escalate"
+    assert f"destructive 0.60" in v.reasoning and f"{harm} 0.60" in v.reasoning
 
 
 async def test_out_of_scope_blocks_approval():

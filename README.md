@@ -128,16 +128,19 @@ Providers are tried in order; the first one that answers gives the verdict (an `
 
 ### Jev (TypeSafe AI)
 
-Jev does not generate text: it answers typed questions about a state, each with a probability. sup7 asks four atomic questions about the pending call and combines them in code, fail-closed:
+Jev does not generate text: it answers typed questions about a state, each with a probability. sup7 asks seven atomic questions about the pending call and combines them in code, fail-closed:
 
 | Question | Type | Asks |
 |----------|------|------|
 | `decision` | choice | approve, escalate or deny |
-| `destructive` | noul | deletes, overwrites or exfiltrates data, or changes permissions or secrets |
+| `deletes` | noul | deletes files, directories or records |
+| `overwrites` | noul | replaces an existing file or record (creating one does not count) |
+| `exfiltrates` | noul | sends data off the machine |
+| `secrets` | noul | reads, changes or exposes credentials, secrets or permissions |
 | `in_scope` | noul | consistent with the agent's recent activity |
 | `injection` | noul | parameters carry instructions aimed at a model |
 
-Approve only when `decision` is approve, `destructive` is low and `in_scope` is high (then `confidence_threshold` applies); deny only when deny is very probable; escalate everything else, including any API error. The probabilities are written into the decision reasoning, so each verdict is auditable in the mesh traces and in mem7.
+`destructive` is the highest of the four harm signals. Approve only when `decision` is approve, `destructive` is low and `in_scope` is high (then `confidence_threshold` applies); deny only when deny is very probable; escalate everything else, including any API error. The probabilities are written into the decision reasoning, so each verdict is auditable in the mesh traces and in mem7.
 
 ```yaml
 evaluator:
