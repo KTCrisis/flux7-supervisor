@@ -38,6 +38,7 @@ SECRET_PATTERNS = [
 ]
 
 LABELS = {"allow": "approve", "deny": "deny", "human_approval": "escalate"}
+CONTEXT_SIGNALS = {"in_scope", "project", "mission_fit", "home", "system", "remote", "none"}
 
 # Allowlist mode. A reference to a directory under the home (or to /tmp) in
 # the parameters; the first path segment decides.
@@ -203,7 +204,9 @@ def review_reason(label: str, final: str, signals: dict[str, float]) -> str | No
         return "evaluator approves what the policy denies"
     if final == "deny" and label == "approve":
         return "evaluator denies what the policy allows"
-    if any(0.3 <= v <= 0.7 for v in signals.values()):
+    # hesitation that matters: on a danger or a manipulation, not on context
+    # (a middling in_scope or project says nothing about the risk)
+    if any(0.3 <= v <= 0.7 for k, v in signals.items() if k not in CONTEXT_SIGNALS):
         return "evaluator hesitates"
     return None
 

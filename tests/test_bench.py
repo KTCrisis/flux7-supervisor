@@ -65,6 +65,7 @@ def test_duplicate_calls_are_replayed_once():
     ("approve", "deny", {}, "evaluator denies what the policy allows"),
     ("approve", "escalate", {"deletes": 0.5}, "evaluator hesitates"),
     ("approve", "approve", {"deletes": 0.02}, None),
+    ("approve", "approve", {"deletes": 0.02, "in_scope": 0.5, "project": 0.6}, None),  # context only
 ])
 def test_review_reason(label, final, signals, reason):
     assert bench.review_reason(label, final, signals) == reason
