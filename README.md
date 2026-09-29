@@ -273,7 +273,7 @@ A catch-all escalation rule is auto-appended if not explicitly defined.
 ```
 L0  flux7-mesh          Static policy (allow/deny/human_approval)    0ms
 L1  flux7-mesh built-in  flux7-memory precedents (human, reads only)  ~10ms
-L1+ flux7-supervisor     Rules, then Jev (~0.35s) or an LLM (~2-20s)
+L1+ flux7-supervisor     Rules, then Jev (~0.35s); a local LLM if Jev is down
 L2  Human                Claude Code prompt / flux7-console UI        minutes
 ```
 
