@@ -48,6 +48,9 @@ class SupervisorRunner:
         self._counts = {"approved": 0, "denied": 0, "escalated": 0}
         self._last_decision_at: str | None = None
         self._admin_server = None
+        from sup7.benchrun import BenchStore
+
+        self._bench = BenchStore(config.bench.dir)
         self._admin_task: asyncio.Task | None = None
 
         self._mem7 = None
@@ -414,6 +417,25 @@ class SupervisorRunner:
         logger.info("configuration changed: %s %s -> %s by %s%s", change["file"], change["sha_before"],
                     change["sha_after"], by, f" (restart required: {', '.join(pending)})" if pending else "")
         return {**change, "reloaded": True, "restart_required": pending}
+
+    # ── evaluation runs (admin API) ───────────────────────────
+    def bench_sets(self) -> list[dict]:
+        return self._bench.sets()
+
+    def bench_runs(self) -> list[dict]:
+        return self._bench.runs()
+
+    def bench_run(self, run_id: str) -> dict:
+        return self._bench.run(run_id)
+
+    def bench_estimate(self, set_name: str) -> dict:
+        return self._bench.estimate(set_name, self._config)
+
+    def bench_start(self, set_name: str, mode: str) -> dict:
+        return self._bench.start(set_name, mode, self._config)
+
+    def bench_progress(self) -> dict:
+        return self._bench.progress()
 
     def recent_decisions(self, limit: int) -> list[dict]:
         return list(self._recent)[:limit]

@@ -85,6 +85,10 @@ def cmd_bench_replay(args: argparse.Namespace) -> None:
         print(f"  skipped ({why}): {n}")
     print("by policy label:", dict(Counter(c.label for c in cases)))
     print("by tool:", dict(Counter(c.context.tool for c in cases).most_common(10)))
+    if args.export_set:
+        with open(args.export_set, "w") as out:
+            print(f"{bench.export(cases, out)} cases written to {args.export_set}")
+        return
     if args.dry_run:
         return
 
@@ -139,6 +143,8 @@ def main() -> None:
     rp.add_argument("--resume", action="store_true",
                     help="keep the results already in --out, replay only the missing and failed cases")
     rp.add_argument("--dry-run", action="store_true", help="count what would be sent and excluded, send nothing")
+    rp.add_argument("--export-set", metavar="PATH",
+                    help="write the selected cases as a case set (for bench.dir/sets/) and stop")
 
     args = parser.parse_args()
 

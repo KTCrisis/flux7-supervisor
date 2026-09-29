@@ -56,7 +56,7 @@ class JevEvaluator:
     def __init__(self, config: EvaluatorConfig) -> None:
         self._config = config
         self._jev = config.jev
-        self._client = httpx.AsyncClient(timeout=config.timeout)
+        self._client: httpx.AsyncClient | None = None  # created on first call: a bench recompute never needs it
         # loaded once: a question set that fails validation stops sup7 at start
         self._packs = load_packs(config.jev.questions)
 
@@ -100,6 +100,8 @@ class JevEvaluator:
             logger.warning("Jev: missing or unexported environment variable(s): %s", ", ".join(missing))
             return None
         url, headers, payload = self._request(approval)
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self._config.timeout)
         try:
             resp = await self._client.post(url, headers=headers, json=payload)
         except httpx.HTTPError as e:  # network, timeout
@@ -181,17 +183,17 @@ class JevEvaluator:
 
         hit = next((q for q in manipulation if values[q.name] > limit(q, j.injection_max)), None)
         if hit:
-            return Verdict("escalate", manip, f"{who}: possible {hit.name} ({signals})", meta=meta)
+            return Verdict("escalate", manip, f"{who}: possible {hit.name} ({signals})", meta=meta, raw=answers)
         if scope is not None and destructive >= j.deny_min and scope < j.deny_in_scope_max:
-            return Verdict("deny", destructive, f"{who}: deny ({signals})", meta=meta)
+            return Verdict("deny", destructive, f"{who}: deny ({signals})", meta=meta, raw=answers)
         if all(values[q.name] <= limit(q, j.destructive_max) for q in counted) and (
                 scope is None or scope >= j.in_scope_min):
             # confidence is checked against confidence_threshold by the evaluator;
             # scope gates approval but stays out of the confidence: on the bench
             # it separated nothing and mostly produced false alerts (2026-09-29)
             confidence = min(1 - destructive, 1 - manip)
-            return Verdict("approve", round(confidence, 4), f"{who}: approve ({signals})", meta=meta)
-        return Verdict("escalate", 1 - destructive, f"{who}: escalate ({signals})", meta=meta)
+            return Verdict("approve", round(confidence, 4), f"{who}: approve ({signals})", meta=meta, raw=answers)
+        return Verdict("escalate", 1 - destructive, f"{who}: escalate ({signals})", meta=meta, raw=answers)
 
     def _required_env(self) -> list[str]:
         if self._jev.backend == "cloudflare" and not self._jev.url:
@@ -199,7 +201,8 @@ class JevEvaluator:
         return [self._jev.api_key_env]
 
     async def close(self) -> None:
-        await self._client.aclose()
+        if self._client is not None:
+            await self._client.aclose()
 
 
 def _payload(data) -> dict | None:

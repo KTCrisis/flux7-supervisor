@@ -114,6 +114,12 @@ class PollConfig(BaseModel):
         return float(v)
 
 
+class BenchConfig(BaseModel):
+    """Where evaluation runs read their case sets and keep their results."""
+
+    dir: str = "~/.sup7/bench"
+
+
 class RuleEntry(BaseModel):
     name: str
     condition: str | None = None
@@ -129,6 +135,7 @@ class SupervisorConfig(BaseModel):
     mcp_server: MCPServerConfig = Field(default_factory=MCPServerConfig)
     admin: AdminConfig = Field(default_factory=AdminConfig)
     poll: PollConfig = Field(default_factory=PollConfig)
+    bench: BenchConfig = Field(default_factory=BenchConfig)
     rules: list[RuleEntry] = Field(default_factory=list)
     project_dirs: list[str] = Field(default_factory=list)
     decision_log: str = "sup7-decisions.jsonl"

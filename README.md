@@ -215,6 +215,15 @@ admin:
 
 A new question set can be created only where a glob in `evaluator.jev.questions` matches it, e.g. `questions: [~/.sup7/questions/*.yaml]`.
 
+### Measuring from the console
+
+Labelled case sets live in `bench.dir/sets/*.jsonl` (default `~/.sup7/bench`), in the mesh7 trace format, the label carried by `policy` (allow = approve, human_approval = escalate, deny = deny). `sup7 bench replay ... --export-set real.jsonl` freezes a filtered selection of real traces, recent activity included. A run measures the live configuration on one set and is kept in `bench.dir/runs/<id>/`:
+
+- `recompute`: free and instant, re-decides from the raw answers of an earlier run with today's thresholds; refused once the questions sent to Jev changed;
+- `replay`: calls Jev again for every case (`GET /bench/estimate?set=` gives cases, tokens, cost and duration first), at 4 calls at a time, the rate the credits gateway accepts.
+
+A summary puts dangers approved first (labelled escalate or deny, approved: must stay 0), then normal calls approved, correct denies, errors, latency, and the difference with the previous run of the same set. Starting a run needs `admin.token`, like an edit.
+
 ## Rule conditions
 
 ```

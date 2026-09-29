@@ -136,6 +136,8 @@ def select(lines, keywords: list[str], agents: list[str] | None = None,
             continue
         session = e.get("session_id") or e.get("agent_id", "")
         recent = [_brief(x) for x in history[session][-RECENT:]][::-1]
+        if isinstance(e.get("recent_traces"), list):  # a frozen set carries its own context
+            recent = e["recent_traces"]
         # tool name included, so a keyword can drop a whole family (e.g. "gmail")
         blob = (e.get("tool", "") + " " + json.dumps(e.get("params"), ensure_ascii=False)).lower()
         hit = next((k for k in kw if k in blob), None)
@@ -173,6 +175,17 @@ def select(lines, keywords: list[str], agents: list[str] | None = None,
     return sel
 
 
+def export(cases: list[Case], out) -> int:
+    """Freeze selected cases as a case set: one trace line each, context included."""
+    for c in cases:
+        out.write(json.dumps({
+            "trace_id": c.trace_id, "timestamp": c.timestamp, "agent_id": c.context.agent_id,
+            "tool": c.context.tool, "params": c.context.params, "policy": c.policy,
+            "policy_rule": c.policy_rule, "recent_traces": c.context.recent_traces,
+        }, ensure_ascii=False) + "\n")
+    return len(cases)
+
+
 def evaluator_config(config: SupervisorConfig, provider: str | None) -> EvaluatorConfig:
     """The evaluator to replay with: one provider of the configured chain, or the root one."""
     ev = config.evaluator
@@ -199,7 +212,8 @@ _SIGNAL = re.compile(r"([a-z_]+) ([0-9]\.[0-9]{2})")
 
 
 async def replay(cases: list[Case], ev_config: EvaluatorConfig, threshold: float,
-                 concurrency: int = 4, out=None, retries: int = 3, backoff: float = 2.0) -> list[dict]:
+                 concurrency: int = 4, out=None, retries: int = 3, backoff: float = 2.0,
+                 progress=None) -> list[dict]:
     """Evaluate each case once; nothing is resolved in any mesh.
 
     A provider answers None on any failure, a rate limit included (HTTP 429):
@@ -233,15 +247,18 @@ async def replay(cases: list[Case], ev_config: EvaluatorConfig, threshold: float
             final, signals = "error", {}
         r = {
             "trace_id": case.trace_id, "timestamp": case.timestamp,
-            "tool": case.context.tool, "params": case.context.params,
+            "agent_id": case.context.agent_id, "tool": case.context.tool, "params": case.context.params,
             "policy": case.policy, "policy_rule": case.policy_rule, "label": case.label,
             "verdict": verdict.action if verdict else None, "final": final,
             "confidence": verdict.confidence if verdict else None,
             "signals": signals, "reasoning": verdict.reasoning if verdict else error,
             "meta": verdict.meta if verdict else None, "ms": ms,
+            "answers": verdict.raw if verdict else None,
             "review": review_reason(case.label, final, signals) if verdict else None,
         }
         results.append(r)
+        if progress is not None:
+            progress()
         if out is not None:
             out.write(json.dumps(r, ensure_ascii=False) + "\n")
             out.flush()

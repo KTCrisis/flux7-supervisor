@@ -10,6 +10,11 @@
   GET  /files/{id}         one file as text (token values masked), ETag = fingerprint
   PUT  /files/{id}         replace it: If-Match required ("new" to create a question set);
                            validated whole, backed up, applied without restart where possible
+  GET  /bench/sets         labelled case sets (bench.dir/sets/*.jsonl)
+  GET  /bench/runs         evaluation runs, newest first; GET /bench/runs/{id} with its results
+  GET  /bench/estimate     ?set=: cost of a replay, and whether a free recompute is possible
+  POST /bench/runs         {"set", "mode": "recompute" | "replay"}: measure the live config
+  GET  /bench/progress     the run in progress
 
 Served in-process by uvicorn next to the poll loop. Off unless `admin.enabled`.
 When `admin.token` is set, every route except /health requires
@@ -39,6 +44,12 @@ class AdminTarget(Protocol):
     def list_files(self) -> list[dict]: ...
     def read_file(self, file_id: str) -> tuple[str, str]: ...
     def write_file(self, file_id: str, text: str, if_match: str | None, by: str) -> dict: ...
+    def bench_sets(self) -> list[dict]: ...
+    def bench_runs(self) -> list[dict]: ...
+    def bench_run(self, run_id: str) -> dict: ...
+    def bench_estimate(self, set_name: str) -> dict: ...
+    def bench_start(self, set_name: str, mode: str) -> dict: ...
+    def bench_progress(self) -> dict: ...
 
 
 def create_admin_app(target: AdminTarget, token: str = "") -> Starlette:
@@ -81,11 +92,44 @@ def create_admin_app(target: AdminTarget, token: str = "") -> Starlette:
         return JSONResponse(target.status())
 
     def edit_error(e):
+        from sup7.benchrun import BenchError
         from sup7.editing import EditError
 
-        if isinstance(e, EditError):
+        if isinstance(e, (EditError, BenchError)):
             return JSONResponse({"error": e.message}, status_code=e.status)
         raise e
+
+    def answer(fn):
+        try:
+            return JSONResponse(fn())
+        except Exception as e:
+            return edit_error(e)
+
+    async def bench_sets(request: Request):
+        return answer(lambda: {"sets": target.bench_sets()})
+
+    async def bench_runs(request: Request):
+        return answer(lambda: {"runs": target.bench_runs()})
+
+    async def bench_run(request: Request):
+        return answer(lambda: target.bench_run(request.path_params["run_id"]))
+
+    async def bench_estimate(request: Request):
+        return answer(lambda: target.bench_estimate(request.query_params.get("set", "")))
+
+    async def bench_progress(request: Request):
+        return answer(target.bench_progress)
+
+    async def bench_start(request: Request):
+        # a replay spends credits: starting a run needs the token, like an edit
+        if not token:
+            return JSONResponse({"error": "running an evaluation needs admin.token in sup7.yaml"},
+                                status_code=403)
+        try:
+            body = await request.json()
+        except ValueError:
+            return JSONResponse({"error": "expected JSON {\"set\", \"mode\"}"}, status_code=400)
+        return answer(lambda: target.bench_start(str(body.get("set", "")), str(body.get("mode", ""))))
 
     async def files(request: Request):
         try:
@@ -122,4 +166,10 @@ def create_admin_app(target: AdminTarget, token: str = "") -> Starlette:
         Route("/files", guarded(files), methods=["GET"]),
         Route("/files/{file_id:path}", guarded(read_file), methods=["GET"]),
         Route("/files/{file_id:path}", guarded(write_file), methods=["PUT"]),
+        Route("/bench/sets", guarded(bench_sets), methods=["GET"]),
+        Route("/bench/runs", guarded(bench_runs), methods=["GET"]),
+        Route("/bench/runs", guarded(bench_start), methods=["POST"]),
+        Route("/bench/runs/{run_id}", guarded(bench_run), methods=["GET"]),
+        Route("/bench/estimate", guarded(bench_estimate), methods=["GET"]),
+        Route("/bench/progress", guarded(bench_progress), methods=["GET"]),
     ])

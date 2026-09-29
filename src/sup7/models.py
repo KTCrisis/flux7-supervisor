@@ -15,6 +15,7 @@ class Verdict(NamedTuple):
     reasoning: str
     source: str = ""  # who answered, for the audit label; set by the provider chain
     meta: dict | None = None  # provenance from the provider: model version, question set, thresholds
+    raw: dict | None = None  # the provider's raw answers, kept by the bench to recompute offline
 
 
 @dataclass
