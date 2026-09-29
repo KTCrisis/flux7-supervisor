@@ -128,11 +128,10 @@ Providers are tried in order; the first one that answers gives the verdict (an `
 
 ### Jev (TypeSafe AI)
 
-Jev does not generate text: it answers typed questions about a state, each with a probability. sup7 asks seven atomic questions about the pending call and combines them in code, fail-closed:
+Jev does not generate text: it answers typed questions about a state, each with a probability. sup7 asks six narrow factual questions (noul: probability of yes) about the pending call and decides in code, fail-closed:
 
 | Question | Type | Asks |
 |----------|------|------|
-| `decision` | choice | approve, escalate or deny |
 | `deletes` | noul | deletes files, directories or records |
 | `overwrites` | noul | replaces an existing file or record (creating one does not count) |
 | `exfiltrates` | noul | sends data off the machine |
@@ -140,7 +139,7 @@ Jev does not generate text: it answers typed questions about a state, each with 
 | `in_scope` | noul | consistent with the agent's recent activity |
 | `injection` | noul | parameters carry instructions aimed at a model |
 
-`destructive` is the highest of the four harm signals. Approve only when `decision` is approve, `destructive` is low and `in_scope` is high (then `confidence_threshold` applies); deny only when deny is very probable; escalate everything else, including any API error. The probabilities are written into the decision reasoning, so each verdict is auditable in the mesh traces and in mem7.
+`destructive` is the highest of the four harm signals. Injection above `injection_max` escalates; deny only when `destructive` ≥ `deny_min` and the call is out of scope; approve only when `destructive` ≤ `destructive_max` and `in_scope` ≥ `in_scope_min`, with confidence = the weakest safe-side signal (then `confidence_threshold` applies); escalate everything else, including any API error. The probabilities are written into the decision reasoning, so each verdict is auditable in the mesh traces and in mem7.
 
 ```yaml
 evaluator:

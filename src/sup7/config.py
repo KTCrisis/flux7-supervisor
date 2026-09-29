@@ -44,7 +44,7 @@ class JevConfig(BaseModel):
     injection_max: float = 0.5  # above: escalate
     destructive_max: float = 0.2  # above: never auto-approve
     in_scope_min: float = 0.7  # below: never auto-approve
-    deny_min: float = 0.9  # deny only when this probable
+    deny_min: float = 0.9  # deny only when a harm is this probable and the call is out of scope
     redact_params: list[str] = Field(default_factory=list)  # param names never sent
 
 

@@ -24,13 +24,10 @@ def _ctx(**kwargs) -> ApprovalContext:
     return ApprovalContext(**defaults)
 
 
-def _answers(choice="approve", probs=None, confidence=0.9, destructive=0.05, in_scope=0.9, injection=0.02,
-             harm="deletes"):
+def _answers(destructive=0.05, in_scope=0.9, injection=0.02, harm="deletes"):
     """destructive sets one of the four harm signals (harm), the others stay low."""
-    probs = probs or {"approve": 0.9, "escalate": 0.08, "deny": 0.02}
     harms = {k: {"type": "noul", "noul": destructive if k == harm else 0.01} for k in DESTRUCTIVE}
     return {
-        "decision": {"type": "choice", "choice": choice, "confidence": confidence, "probabilities": probs},
         **harms,
         "in_scope": {"type": "noul", "noul": in_scope},
         "injection": {"type": "noul", "noul": injection},
@@ -67,7 +64,7 @@ async def test_cloudflare_request_shape(monkeypatch):
     assert seen["url"] == "https://api.cloudflare.com/client/v4/accounts/acc123/ai/run"
     assert seen["auth"] == "Bearer cf-token"
     assert seen["body"]["model"] == "typesafe/jev"
-    assert set(seen["body"]["input"]["questions"]) == {"decision", *DESTRUCTIVE, "in_scope", "injection"}
+    assert set(seen["body"]["input"]["questions"]) == {*DESTRUCTIVE, "in_scope", "injection"}
     assert seen["body"]["input"]["state"]["tool"] == "filesystem.write_file"
     assert verdict.action == "approve"
 
@@ -113,15 +110,21 @@ async def test_redacted_params_never_sent():
 # ── combination ───────────────────────────────────────────────
 async def test_approve_when_all_signals_agree():
     v = await _evaluator(_ok({"answers": _answers()})).evaluate(_ctx())
+    # confidence = weakest safe-side signal: min(1 - 0.05, 0.9, 1 - 0.02)
     assert v.action == "approve" and v.confidence == 0.9
     assert "destructive 0.05" in v.reasoning  # probabilities are kept for audit
+
+
+async def test_approve_confidence_is_weakest_signal():
+    v = await _evaluator(_ok({"answers": _answers(destructive=0.15, in_scope=0.95)})).evaluate(_ctx())
+    assert v.action == "approve" and v.confidence == 0.85
 
 
 @pytest.mark.parametrize("harm", DESTRUCTIVE)
 async def test_any_harm_blocks_approval(harm):
     v = await _evaluator(_ok({"answers": _answers(destructive=0.6, harm=harm)})).evaluate(_ctx())
     assert v.action == "escalate"
-    assert f"destructive 0.60" in v.reasoning and f"{harm} 0.60" in v.reasoning
+    assert "destructive 0.60" in v.reasoning and f"{harm} 0.60" in v.reasoning
 
 
 async def test_out_of_scope_blocks_approval():
@@ -129,22 +132,23 @@ async def test_out_of_scope_blocks_approval():
     assert v.action == "escalate"
 
 
-async def test_injection_escalates_even_if_approve():
+async def test_injection_escalates_even_if_safe():
     v = await _evaluator(_ok({"answers": _answers(injection=0.8)})).evaluate(_ctx())
     assert v.action == "escalate" and "injection" in v.reasoning
 
 
-async def test_deny_only_when_very_probable():
-    likely = _answers(choice="deny", probs={"approve": 0.0, "escalate": 0.05, "deny": 0.95}, destructive=0.9)
-    unsure = _answers(choice="deny", probs={"approve": 0.1, "escalate": 0.3, "deny": 0.6}, destructive=0.9)
-    assert (await _evaluator(_ok({"answers": likely})).evaluate(_ctx())).action == "deny"
-    assert (await _evaluator(_ok({"answers": unsure})).evaluate(_ctx())).action == "escalate"
+async def test_injection_wins_over_deny():
+    ans = _answers(destructive=0.99, in_scope=0.1, injection=0.9)
+    assert (await _evaluator(_ok({"answers": ans})).evaluate(_ctx())).action == "escalate"
 
 
-async def test_escalate_choice_passes_through():
-    ans = _answers(choice="escalate", probs={"approve": 0.2, "escalate": 0.7, "deny": 0.1})
-    v = await _evaluator(_ok({"answers": ans})).evaluate(_ctx())
-    assert v.action == "escalate"
+async def test_deny_needs_certain_harm_and_out_of_scope():
+    certain_out = _answers(destructive=0.97, in_scope=0.2)
+    certain_in = _answers(destructive=0.97, in_scope=0.9)  # e.g. a cleanup the agent always does
+    likely_out = _answers(destructive=0.8, in_scope=0.2)
+    assert (await _evaluator(_ok({"answers": certain_out})).evaluate(_ctx())).action == "deny"
+    assert (await _evaluator(_ok({"answers": certain_in})).evaluate(_ctx())).action == "escalate"
+    assert (await _evaluator(_ok({"answers": likely_out})).evaluate(_ctx())).action == "escalate"
 
 
 # ── failures: None means the evaluator escalates to a human ──
@@ -152,7 +156,7 @@ async def test_escalate_choice_passes_through():
     httpx.Response(500, text="boom"),
     httpx.Response(429, json={"error": "rate limited"}),
     httpx.Response(200, text="not json"),
-    httpx.Response(200, json={"answers": {"decision": {"choice": "approve"}}}),  # missing questions
+    httpx.Response(200, json={"answers": {"deletes": {"noul": 0.1}}}),  # missing questions
 ])
 async def test_failures_return_none(response):
     assert await _evaluator(lambda request: response).evaluate(_ctx()) is None
