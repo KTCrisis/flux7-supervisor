@@ -59,6 +59,39 @@ def cmd_status(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_bench_replay(args: argparse.Namespace) -> None:
+    from collections import Counter
+
+    from sup7 import bench
+
+    keywords = list(args.exclude)
+    if args.exclude_file:
+        with open(args.exclude_file) as f:
+            keywords += [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+    with open(args.traces, errors="ignore") as f:
+        sel = bench.select(f, keywords, agents=args.agent)
+    cases = sel.cases[: args.limit] if args.limit else sel.cases
+
+    print(f"{len(sel.cases)} cases kept, {sum(sel.excluded.values())} calls excluded")
+    for kw, n in sel.excluded.most_common():
+        print(f"  excluded by {kw!r}: {n}")
+    for why, n in sel.skipped.most_common():
+        print(f"  skipped ({why}): {n}")
+    print("by policy label:", dict(Counter(c.label for c in cases)))
+    print("by tool:", dict(Counter(c.context.tool for c in cases).most_common(10)))
+    if args.dry_run:
+        return
+
+    setup_logging(args.verbose)
+    config = load_config(args.config)
+    ev = bench.evaluator_config(config, args.provider)
+    with open(args.out, "w") as out:
+        results = asyncio.run(bench.replay(
+            cases, ev, config.evaluator.confidence_threshold, args.concurrency, out))
+    print(bench.report(results))
+    print(f"results: {args.out}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="sup7",
@@ -74,6 +107,19 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("start", help="start the supervisor poll loop")
     sub.add_parser("status", help="check mesh and memory connectivity")
+    bench = sub.add_parser("bench", help="offline evaluation of traced calls")
+    bench_sub = bench.add_subparsers(dest="bench_command")
+    rp = bench_sub.add_parser("replay", help="replay mesh7 traces through an evaluator, resolve nothing")
+    rp.add_argument("--traces", required=True, help="mesh7 traces JSONL")
+    rp.add_argument("--out", default="replay.jsonl", help="results JSONL (default: replay.jsonl)")
+    rp.add_argument("--provider", help="provider of the configured chain to use (default: the configured evaluator)")
+    rp.add_argument("--exclude", action="append", default=[], metavar="KEYWORD",
+                    help="drop any call whose tool name or parameters contain this keyword (repeatable)")
+    rp.add_argument("--exclude-file", help="file with one exclusion keyword per line")
+    rp.add_argument("--agent", action="append", help="keep only this agent (repeatable)")
+    rp.add_argument("--limit", type=int, help="replay at most this many cases")
+    rp.add_argument("--concurrency", type=int, default=8)
+    rp.add_argument("--dry-run", action="store_true", help="count what would be sent and excluded, send nothing")
 
     args = parser.parse_args()
 
@@ -81,6 +127,8 @@ def main() -> None:
         cmd_start(args)
     elif args.command == "status":
         cmd_status(args)
+    elif args.command == "bench" and args.bench_command == "replay":
+        cmd_bench_replay(args)
     else:
         parser.print_help()
         sys.exit(1)
