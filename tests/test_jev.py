@@ -69,6 +69,16 @@ async def test_cloudflare_request_shape(monkeypatch):
     assert verdict.action == "approve"
 
 
+async def test_cloudflare_double_envelope():
+    # shape of a real Workers AI response for typesafe/jev (2026-09-29)
+    body = {"result": {"state": "Completed",
+                       "result": {"model": "jev-1.13.0", "answers": _answers(),
+                                  "usage": {"input_tokens": 638, "output_tokens": 94}}},
+            "success": True, "errors": [], "messages": []}
+    verdict = await _evaluator(_ok(body)).evaluate(_ctx())
+    assert verdict is not None and verdict.action == "approve"
+
+
 async def test_typesafe_request_shape(monkeypatch):
     monkeypatch.setenv("TYPESAFE_API_KEY", "ts-key")
     seen = {}

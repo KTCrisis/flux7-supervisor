@@ -119,10 +119,7 @@ class JevEvaluator:
         except ValueError:
             logger.warning("Jev: response is not JSON")
             return None
-        # Cloudflare wraps the model output in {"result": ..., "success": ...}
-        if isinstance(data, dict) and "answers" not in data and isinstance(data.get("result"), dict):
-            data = data["result"]
-        return self._combine(data.get("answers") if isinstance(data, dict) else None)
+        return self._combine(_unwrap(data))
 
     def _combine(self, answers: dict | None) -> Verdict | None:
         try:
@@ -164,6 +161,21 @@ class JevEvaluator:
 
     async def close(self) -> None:
         await self._client.aclose()
+
+
+def _unwrap(data) -> dict | None:
+    """The answers dict, whatever the envelope.
+
+    TypeSafe returns {"answers": ...}. Cloudflare wraps it twice, as observed
+    on a real call: {"result": {"state": "Completed", "result": {"answers": ...}}}.
+    """
+    for _ in range(3):
+        if not isinstance(data, dict):
+            return None
+        if "answers" in data:
+            return data["answers"]
+        data = data.get("result")
+    return None
 
 
 def _error_message(resp: httpx.Response) -> str:
