@@ -89,9 +89,10 @@ class BenchStore:
             raise BenchError(404, f"no case set {name!r}")
         return path
 
-    def cases(self, name: str) -> list[bench.Case]:
+    def cases(self, name: str, project_dirs: list[str] | None = None) -> list[bench.Case]:
+        # the project is the live configuration's, as sup7 gives it to Jev in production
         with open(self._set_path(name), errors="ignore") as f:
-            return bench.select(f, []).cases
+            return bench.select(f, [], project_dirs=project_dirs).cases
 
     def sets(self) -> list[dict]:
         out = []
@@ -134,6 +135,9 @@ class BenchStore:
         for summary in self.runs():
             if summary.get("set") != set_name or summary.get("status") != "done":
                 continue
+            if summary.get("project_dirs") != list(config.project_dirs):
+                return None, (f"project_dirs changed since run {summary['id']}: "
+                              "Jev's answers depend on them, replay needed")
             rows = self._raw(summary["id"])
             usable = [r for r in rows if r.get("answers")]
             if not usable:
@@ -168,7 +172,7 @@ class BenchStore:
             raise BenchError(400, "mode is 'recompute' or 'replay'")
         if self.busy:
             raise BenchError(409, f"run {self._progress.get('id')} is still going")
-        cases = self.cases(set_name)
+        cases = self.cases(set_name, config.project_dirs)
         entry, threshold = jev_entry(config)
         source = None
         if mode == "recompute":
@@ -181,7 +185,7 @@ class BenchStore:
         d.mkdir(parents=True)
         summary = {"id": run_id, "set": set_name, "mode": mode, "status": "running",
                    "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "from_run": source,
-                   "threshold": threshold, "jev": entry.jev.model_dump(exclude={"api_key_env", "account_id_env"})}
+                   "threshold": threshold, "project_dirs": list(config.project_dirs), "jev": entry.jev.model_dump(exclude={"api_key_env", "account_id_env"})}
         (d / "summary.json").write_text(json.dumps(summary, indent=1))
         self._progress = {"id": run_id, "done": 0, "total": len(cases)}
         self._task = asyncio.ensure_future(self._run(d, summary, cases, entry, threshold, source))

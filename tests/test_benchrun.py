@@ -39,7 +39,7 @@ def config(tmp_path, monkeypatch):
     sets.mkdir(parents=True)
     (sets / "mini.jsonl").write_text("\n".join([_set_line("ok", "allow"), _set_line("maybe", "allow"),
                                                 _set_line("rm", "deny")]) + "\n")
-    cfg = SupervisorConfig(bench={"dir": str(tmp_path / "bench")},
+    cfg = SupervisorConfig(bench={"dir": str(tmp_path / "bench")}, project_dirs=["/home/u/project"],
                            evaluator={"provider": "none", "confidence_threshold": 0.8, "chain": [
                                {"provider": "jev", "confidence_threshold": 0.6}]})
 
@@ -120,3 +120,14 @@ async def test_starting_a_run_needs_the_token(config):
         assert (await c.get("/bench/sets")).json()["sets"][0]["name"] == "mini"
         r = await c.post("/bench/runs", json={"set": "mini", "mode": "replay"})
     assert r.status_code == 403
+
+
+async def test_runs_use_the_live_project_dirs(config):
+    store = BenchStore(config.bench.dir)
+    assert store.cases("mini", config.project_dirs)[0].context.project_dirs == ["/home/u/project"]
+    first = store.start("mini", "replay", config)
+    await _wait(store)
+    assert store.run(first["id"])["project_dirs"] == ["/home/u/project"]
+    config.project_dirs = ["/home/u/other"]
+    est = store.estimate("mini", config)
+    assert not est["recompute"]["available"] and "project_dirs changed" in est["recompute"]["reason"]
