@@ -139,7 +139,7 @@ Jev does not generate text: it answers typed questions about a state, each with 
 | `in_scope` | noul | consistent with the agent's recent activity |
 | `injection` | noul | parameters carry instructions aimed at a model |
 
-`destructive` is the highest of the four harm signals. Injection above `injection_max` escalates; deny only when `destructive` ≥ `deny_min` and the call is out of scope; approve only when `destructive` ≤ `destructive_max` and `in_scope` ≥ `in_scope_min`, with confidence = the weakest safe-side signal (then `confidence_threshold` applies); escalate everything else, including any API error. The probabilities are written into the decision reasoning, so each verdict is auditable in the mesh traces and in mem7.
+`destructive` is the highest of the four harm signals. Injection above `injection_max` escalates; deny only when `destructive` ≥ `deny_min` and the call is out of scope; approve only when `destructive` ≤ `destructive_max` and `in_scope` ≥ `in_scope_min`, with confidence = the weakest safe-side signal (then `confidence_threshold` applies); escalate everything else, including any API error. The probabilities are written into the decision reasoning, so each verdict is auditable in the mesh traces and in mem7. Each Jev decision also records its provenance: the model version returned by the API (`jev-1.13.0`), a 12-character fingerprint of the question set (it changes whenever a question or criterion changes) and the thresholds applied, under `evaluator` in the decision log, mem7 and `GET /decisions`; model and fingerprint also head the reasoning (`Jev jev-1.13.0 q=…: approve (…)`), which is what the mesh trace keeps.
 
 ```yaml
 evaluator:

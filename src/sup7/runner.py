@@ -239,6 +239,7 @@ class SupervisorRunner:
                 "reasoning": decision.reasoning,
                 "confidence": decision.confidence,
                 "timestamp": decision.timestamp.isoformat(),
+                "evaluator": decision.evaluator,
             })
             tags = self._config.memory.tags + [decision.decision, decision.tool.split(".")[0]]
             self._mem7.store(key, value, tags=tags, agent=self._config.mesh.agent_id)
@@ -287,6 +288,7 @@ class SupervisorRunner:
             "reasoning": decision.reasoning,
             "confidence": decision.confidence,
             "evaluation_ms": decision.evaluation_ms,
+            "evaluator": decision.evaluator,
         })
 
     def _providers(self) -> list[dict]:

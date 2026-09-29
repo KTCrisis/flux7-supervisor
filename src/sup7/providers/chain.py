@@ -69,7 +69,7 @@ class ChainEvaluator:
                 continue
             self._failures[i] = 0
             prefix = f"[{name}" + (f", {', '.join(passed)}" if passed else "") + "] "
-            return Verdict(verdict.action, verdict.confidence, prefix + verdict.reasoning, self._labels[i])
+            return Verdict(verdict.action, verdict.confidence, prefix + verdict.reasoning, self._labels[i], verdict.meta)
         logger.warning("every provider in the chain failed: %s", ", ".join(passed))
         return None
 

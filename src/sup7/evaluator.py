@@ -118,6 +118,7 @@ class RuleEvaluator:
             rule_matched=verdict.source or provider_label(self._config.evaluator),
             reasoning=reasoning,
             confidence=verdict.confidence,
+            evaluator=verdict.meta,
         )
 
     async def close(self) -> None:
@@ -127,6 +128,7 @@ class RuleEvaluator:
     def _decision(
         self, approval: ApprovalContext, start: float, *,
         decision: str, rule_matched: str | None, reasoning: str, confidence: float,
+        evaluator: dict | None = None,
     ) -> Decision:
         return Decision(
             timestamp=Decision.now(),
@@ -139,6 +141,7 @@ class RuleEvaluator:
             confidence=confidence,
             evaluation_ms=int((time.monotonic() - start) * 1000),
             injection_risk=approval.injection_risk,
+            evaluator=evaluator,
         )
 
     def _build_reasoning(self, rule: RuleEntry, approval: ApprovalContext) -> str:

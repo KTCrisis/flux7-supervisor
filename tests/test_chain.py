@@ -131,3 +131,9 @@ async def test_answer_carries_its_label():
     v = await ChainEvaluator([("jev", Fake(None)), ("ollama", Fake(APPROVE))],
                              labels=["jev:cloudflare", "ollama:qwen3:14b"]).evaluate(_ctx())
     assert v.source == "ollama:qwen3:14b" and v.reasoning.startswith("[ollama, jev failed]")
+
+
+async def test_answer_keeps_the_provider_provenance():
+    meta = {"model": "jev-1.13.0"}
+    v = await ChainEvaluator([("jev", Fake(Verdict("approve", 0.9, "ok", meta=meta)))]).evaluate(_ctx())
+    assert v.meta == meta

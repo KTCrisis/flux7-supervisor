@@ -35,6 +35,7 @@ class DecisionLogger:
             "confidence": decision.confidence,
             "evaluation_ms": decision.evaluation_ms,
             "injection_risk": decision.injection_risk,
+            "evaluator": decision.evaluator,
         }
         self._file.write(json.dumps(record) + "\n")
         self._file.flush()

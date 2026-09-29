@@ -135,3 +135,21 @@ async def test_chain_decision_labelled_with_the_provider_that_answered():
 def test_provider_label(config, label):
     from sup7.providers import provider_label
     assert provider_label(config) == label
+
+
+@pytest.mark.asyncio
+async def test_decision_carries_evaluator_provenance(tmp_path):
+    import json
+
+    from sup7.logger import DecisionLogger
+    from sup7.models import Verdict
+
+    meta = {"model": "jev-1.13.0", "questions": "abc123def456", "thresholds": {"deny_min": 0.9}}
+    evaluator = RuleEvaluator(_config(rules=[]))
+    evaluator._llm = _Stub(Verdict("escalate", 0.5, "Jev: escalate", "jev:cloudflare", meta))
+    decision = await evaluator.evaluate(_ctx(tool="unknown.tool"))
+    assert decision.evaluator == meta
+
+    log = DecisionLogger(str(tmp_path / "d.jsonl"))
+    log.open(); log.log(decision); log.close()
+    assert json.loads((tmp_path / "d.jsonl").read_text())["evaluator"] == meta

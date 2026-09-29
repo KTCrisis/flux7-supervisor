@@ -31,6 +31,7 @@ Two ways to reach the same model:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -93,6 +94,10 @@ QUESTIONS: dict = {
 
 DESTRUCTIVE = ("deletes", "overwrites", "exfiltrates", "secrets")
 
+# Fingerprint of the question set: changes whenever a question or criterion
+# changes, so a decision can be traced to the exact wording that produced it.
+QUESTIONS_SHA = hashlib.sha256(json.dumps(QUESTIONS, sort_keys=True).encode()).hexdigest()[:12]
+
 
 class JevEvaluator:
     def __init__(self, config: EvaluatorConfig) -> None:
@@ -150,9 +155,10 @@ class JevEvaluator:
         except ValueError:
             logger.warning("Jev: response is not JSON")
             return None
-        return self._combine(_unwrap(data))
+        payload = _payload(data)
+        return self._combine(_unwrap(data), model=str((payload or {}).get("model", "")))
 
-    def _combine(self, answers: dict | None) -> Verdict | None:
+    def _combine(self, answers: dict | None, model: str = "") -> Verdict | None:
         try:
             harms = {k: float(answers[k]["noul"]) for k in DESTRUCTIVE}
             in_scope = float(answers["in_scope"]["noul"])
@@ -165,16 +171,24 @@ class JevEvaluator:
         detail = " · ".join(f"{k} {v:.2f}" for k, v in harms.items())
         signals = f"destructive {destructive:.2f} ({detail}) · in_scope {in_scope:.2f} · injection {injection:.2f}"
         j = self._jev
+        # provenance: which model, which questions, which thresholds decided
+        meta = {
+            "model": model or "unknown",
+            "questions": QUESTIONS_SHA,
+            "thresholds": {"injection_max": j.injection_max, "deny_min": j.deny_min,
+                           "destructive_max": j.destructive_max, "in_scope_min": j.in_scope_min},
+        }
+        who = f"Jev {meta['model']} q={QUESTIONS_SHA}"
 
         if injection > j.injection_max:
-            return Verdict("escalate", injection, f"Jev: possible injection ({signals})")
+            return Verdict("escalate", injection, f"{who}: possible injection ({signals})", meta=meta)
         if destructive >= j.deny_min and in_scope < j.in_scope_min:
-            return Verdict("deny", destructive, f"Jev: deny ({signals})")
+            return Verdict("deny", destructive, f"{who}: deny ({signals})", meta=meta)
         if destructive <= j.destructive_max and in_scope >= j.in_scope_min:
             # confidence is checked against confidence_threshold by the evaluator
             confidence = min(1 - destructive, in_scope, 1 - injection)
-            return Verdict("approve", round(confidence, 4), f"Jev: approve ({signals})")
-        return Verdict("escalate", 1 - destructive, f"Jev: escalate ({signals})")
+            return Verdict("approve", round(confidence, 4), f"{who}: approve ({signals})", meta=meta)
+        return Verdict("escalate", 1 - destructive, f"{who}: escalate ({signals})", meta=meta)
 
     def _required_env(self) -> list[str]:
         if self._jev.backend == "cloudflare" and not self._jev.url:
@@ -185,19 +199,25 @@ class JevEvaluator:
         await self._client.aclose()
 
 
-def _unwrap(data) -> dict | None:
-    """The answers dict, whatever the envelope.
+def _payload(data) -> dict | None:
+    """The object holding answers and model, whatever the envelope.
 
-    TypeSafe returns {"answers": ...}. Cloudflare wraps it twice, as observed
-    on a real call: {"result": {"state": "Completed", "result": {"answers": ...}}}.
+    TypeSafe returns {"model", "answers", ...}. Cloudflare wraps it twice, as
+    observed on a real call: {"result": {"state": "Completed", "result": {...}}}.
     """
     for _ in range(3):
         if not isinstance(data, dict):
             return None
         if "answers" in data:
-            return data["answers"]
+            return data
         data = data.get("result")
     return None
+
+
+def _unwrap(data) -> dict | None:
+    """The answers dict, whatever the envelope."""
+    payload = _payload(data)
+    return payload.get("answers") if payload else None
 
 
 def _error_message(resp: httpx.Response) -> str:

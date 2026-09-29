@@ -14,6 +14,7 @@ class Verdict(NamedTuple):
     confidence: float  # 0.0-1.0
     reasoning: str
     source: str = ""  # who answered, for the audit label; set by the provider chain
+    meta: dict | None = None  # provenance from the provider: model version, question set, thresholds
 
 
 @dataclass
@@ -30,6 +31,7 @@ class Decision:
     confidence: float
     evaluation_ms: int
     injection_risk: bool = False
+    evaluator: dict | None = None  # provenance of an LLM verdict (Verdict.meta)
 
     @staticmethod
     def now() -> datetime:

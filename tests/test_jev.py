@@ -8,7 +8,7 @@ import pytest
 from sup7.config import EvaluatorConfig, JevConfig
 from sup7.models import ApprovalContext
 from sup7.providers import create_evaluator
-from sup7.providers.jev import DESTRUCTIVE, JevEvaluator
+from sup7.providers.jev import DESTRUCTIVE, QUESTIONS_SHA, JevEvaluator
 
 
 @pytest.fixture(autouse=True)
@@ -182,3 +182,21 @@ async def test_http_error_log_hides_account_id(caplog):
         assert await _evaluator(lambda request: httpx.Response(402, json=body)).evaluate(_ctx()) is None
     assert "insufficient credits" in caplog.text and "402" in caplog.text
     assert "acc123" not in caplog.text
+
+
+# ── provenance ────────────────────────────────────────────────
+async def test_verdict_records_model_questions_and_thresholds():
+    body = {"result": {"state": "Completed",
+                       "result": {"model": "jev-1.13.0", "answers": _answers()}}, "success": True}
+    v = await _evaluator(_ok(body)).evaluate(_ctx())
+    assert v.meta["model"] == "jev-1.13.0"
+    assert v.meta["questions"] == QUESTIONS_SHA and len(QUESTIONS_SHA) == 12
+    assert v.meta["thresholds"] == {"injection_max": 0.5, "deny_min": 0.9,
+                                    "destructive_max": 0.2, "in_scope_min": 0.7}
+    # the reasoning carries it too, so the mesh trace (which gets only the reasoning) keeps it
+    assert v.reasoning.startswith(f"Jev jev-1.13.0 q={QUESTIONS_SHA}: approve")
+
+
+async def test_unknown_model_when_the_response_omits_it():
+    v = await _evaluator(_ok({"answers": _answers()})).evaluate(_ctx())
+    assert v.meta["model"] == "unknown"
