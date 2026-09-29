@@ -93,7 +93,7 @@ class _Fake:
 async def test_replay_applies_threshold_and_flags_cases(monkeypatch):
     verdicts = {
         "ok": Verdict("approve", 0.9, "Jev: approve (destructive 0.05 (deletes 0.05) · in_scope 0.90)"),
-        "low": Verdict("approve", 0.6, "Jev: approve (destructive 0.10 (deletes 0.10) · in_scope 0.60)"),
+        "low": Verdict("approve", 0.6, "Jev: approve (destructive 0.40 (deletes 0.40) · in_scope 0.90)"),
         "bad": Verdict("deny", 0.99, "Jev: deny (destructive 0.99 (deletes 0.99) · in_scope 0.20)"),
         "err": None,
     }
@@ -103,7 +103,7 @@ async def test_replay_applies_threshold_and_flags_cases(monkeypatch):
     results = {r["trace_id"]: r for r in await bench.replay(cases, EvaluatorConfig(), 0.8, out=out, backoff=0)}
     assert results["ok"]["final"] == "approve" and results["ok"]["review"] is None
     assert results["low"]["final"] == "escalate"  # below confidence_threshold
-    assert results["low"]["review"] == "evaluator hesitates"  # in_scope 0.60
+    assert results["low"]["review"] == "evaluator hesitates"  # deletes 0.40
     assert results["bad"]["review"] == "evaluator denies what the policy allows"
     assert results["err"]["final"] == "error"
     assert len(out.getvalue().splitlines()) == 4
