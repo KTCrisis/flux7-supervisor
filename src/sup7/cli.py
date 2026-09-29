@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
+import os
 import sys
 
 from sup7.config import load_config
@@ -69,7 +71,10 @@ def cmd_bench_replay(args: argparse.Namespace) -> None:
         with open(args.exclude_file) as f:
             keywords += [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
     with open(args.traces, errors="ignore") as f:
-        sel = bench.select(f, keywords, agents=args.agent, allow_repos=args.allow_repo)
+        # allowed repositories are the project for target_zone
+        home = os.path.expanduser("~")
+        projects = [os.path.join(home, r) for r in (args.allow_repo or [])]
+        sel = bench.select(f, keywords, agents=args.agent, allow_repos=args.allow_repo, project_dirs=projects)
     cases = sel.cases[: args.limit] if args.limit else sel.cases
 
     print(f"{len(sel.cases)} cases kept, {sum(sel.excluded.values())} calls excluded")
@@ -85,10 +90,17 @@ def cmd_bench_replay(args: argparse.Namespace) -> None:
     setup_logging(args.verbose)
     config = load_config(args.config)
     ev = bench.evaluator_config(config, args.provider)
+    kept = bench.done(args.out) if args.resume else []
+    ids = {r["trace_id"] for r in kept}
+    todo = [c for c in cases if c.trace_id not in ids]
+    if args.resume:
+        print(f"resume: {len(kept)} results kept, {len(todo)} to replay")
     with open(args.out, "w") as out:
+        for r in kept:
+            out.write(json.dumps(r, ensure_ascii=False) + "\n")
         results = asyncio.run(bench.replay(
-            cases, ev, config.evaluator.confidence_threshold, args.concurrency, out))
-    print(bench.report(results))
+            todo, ev, config.evaluator.confidence_threshold, args.concurrency, out))
+    print(bench.report(kept + results))
     print(f"results: {args.out}")
 
 
@@ -120,7 +132,9 @@ def main() -> None:
                     help="allowlist: keep only calls naming ~/DIR (repeatable); query tools may go without a path")
     rp.add_argument("--agent", action="append", help="keep only this agent (repeatable)")
     rp.add_argument("--limit", type=int, help="replay at most this many cases")
-    rp.add_argument("--concurrency", type=int, default=8)
+    rp.add_argument("--concurrency", type=int, default=4)
+    rp.add_argument("--resume", action="store_true",
+                    help="keep the results already in --out, replay only the missing and failed cases")
     rp.add_argument("--dry-run", action="store_true", help="count what would be sent and excluded, send nothing")
 
     args = parser.parse_args()

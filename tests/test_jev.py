@@ -24,11 +24,15 @@ def _ctx(**kwargs) -> ApprovalContext:
     return ApprovalContext(**defaults)
 
 
-def _answers(destructive=0.05, in_scope=0.9, injection=0.02, harm="deletes"):
+def _answers(destructive=0.05, in_scope=0.9, injection=0.02, harm="deletes", project=0.9):
     """destructive sets one of the four harm signals (harm), the others stay low."""
     harms = {k: {"type": "noul", "noul": destructive if k == harm else 0.01} for k in DESTRUCTIVE}
+    rest = (1 - project) / 4
+    zone = {"type": "choice", "choice": "project" if project >= 0.5 else "home",
+            "probabilities": {"project": project, "home": rest, "system": rest, "remote": rest, "none": rest}}
     return {
         **harms,
+        "target_zone": zone,
         "in_scope": {"type": "noul", "noul": in_scope},
         "injection": {"type": "noul", "noul": injection},
     }
@@ -64,7 +68,7 @@ async def test_cloudflare_request_shape(monkeypatch):
     assert seen["url"] == "https://api.cloudflare.com/client/v4/accounts/acc123/ai/run"
     assert seen["auth"] == "Bearer cf-token"
     assert seen["body"]["model"] == "typesafe/jev"
-    assert set(seen["body"]["input"]["questions"]) == {*DESTRUCTIVE, "in_scope", "injection"}
+    assert set(seen["body"]["input"]["questions"]) == {*DESTRUCTIVE, "target_zone", "in_scope", "injection"}
     assert seen["body"]["input"]["state"]["tool"] == "filesystem.write_file"
     assert verdict.action == "approve"
 
@@ -120,9 +124,36 @@ async def test_approve_confidence_is_weakest_signal():
     assert v.action == "approve" and v.confidence == 0.85
 
 
+async def test_overwrite_inside_the_project_is_not_a_harm():
+    v = await _evaluator(_ok({"answers": _answers(destructive=0.9, harm="overwrites", project=0.85)})).evaluate(_ctx())
+    assert v.action == "approve" and "overwrites 0.90" in v.reasoning and "project 0.85" in v.reasoning
+
+
+async def test_overwrite_outside_the_project_blocks():
+    v = await _evaluator(_ok({"answers": _answers(destructive=0.9, harm="overwrites", project=0.3)})).evaluate(_ctx())
+    assert v.action == "escalate"
+
+
+@pytest.mark.parametrize("harm", ["deletes", "exfiltrates", "secrets"])
+async def test_other_harms_block_even_inside_the_project(harm):
+    v = await _evaluator(_ok({"answers": _answers(destructive=0.6, harm=harm, project=0.95)})).evaluate(_ctx())
+    assert v.action == "escalate"
+
+
+async def test_project_dirs_reach_the_state():
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"answers": _answers()})
+
+    await _evaluator(handler).evaluate(_ctx(project_dirs=["/home/u/project"]))
+    assert seen["body"]["input"]["state"]["project_dirs"] == ["/home/u/project"]
+
+
 @pytest.mark.parametrize("harm", DESTRUCTIVE)
 async def test_any_harm_blocks_approval(harm):
-    v = await _evaluator(_ok({"answers": _answers(destructive=0.6, harm=harm)})).evaluate(_ctx())
+    v = await _evaluator(_ok({"answers": _answers(destructive=0.6, harm=harm, project=0.3)})).evaluate(_ctx())
     assert v.action == "escalate"
     assert "destructive 0.60" in v.reasoning and f"{harm} 0.60" in v.reasoning
 
@@ -192,7 +223,7 @@ async def test_verdict_records_model_questions_and_thresholds():
     assert v.meta["model"] == "jev-1.13.0"
     assert v.meta["questions"] == QUESTIONS_SHA and len(QUESTIONS_SHA) == 12
     assert v.meta["thresholds"] == {"injection_max": 0.5, "deny_min": 0.9,
-                                    "destructive_max": 0.2, "in_scope_min": 0.7}
+                                    "destructive_max": 0.2, "in_scope_min": 0.7, "project_min": 0.7}
     # the reasoning carries it too, so the mesh trace (which gets only the reasoning) keeps it
     assert v.reasoning.startswith(f"Jev jev-1.13.0 q={QUESTIONS_SHA}: approve")
 

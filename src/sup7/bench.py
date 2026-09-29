@@ -102,7 +102,8 @@ def _brief(entry: dict) -> dict:
 
 
 def select(lines, keywords: list[str], agents: list[str] | None = None,
-           tools: list[str] | None = None, allow_repos: list[str] | None = None) -> Selection:
+           tools: list[str] | None = None, allow_repos: list[str] | None = None,
+           project_dirs: list[str] | None = None) -> Selection:
     """Build replayable cases from trace lines, dropping any call that mentions a keyword.
 
     With allow_repos, a call is kept only if allowed() accepts it: keywords
@@ -166,6 +167,7 @@ def select(lines, keywords: list[str], agents: list[str] | None = None,
                 params=scrub(e.get("params") or {}),
                 policy_rule=e.get("policy_rule", ""),
                 recent_traces=recent,
+                project_dirs=list(project_dirs or []),
             ),
         ))
     return sel
@@ -197,8 +199,12 @@ _SIGNAL = re.compile(r"([a-z_]+) ([0-9]\.[0-9]{2})")
 
 
 async def replay(cases: list[Case], ev_config: EvaluatorConfig, threshold: float,
-                 concurrency: int = 8, out=None) -> list[dict]:
-    """Evaluate each case once; nothing is resolved in any mesh."""
+                 concurrency: int = 4, out=None, retries: int = 3, backoff: float = 2.0) -> list[dict]:
+    """Evaluate each case once; nothing is resolved in any mesh.
+
+    A provider answers None on any failure, a rate limit included (HTTP 429):
+    such a case is retried after a growing pause before it counts as an error.
+    """
     evaluator = create_evaluator(ev_config)
     sem = asyncio.Semaphore(concurrency)
     results: list[dict] = []
@@ -206,12 +212,17 @@ async def replay(cases: list[Case], ev_config: EvaluatorConfig, threshold: float
     async def one(case: Case) -> None:
         async with sem:
             start = time.monotonic()
-            try:
-                verdict = await evaluator.evaluate(case.context)
-            except Exception as e:  # a failed case must not stop the replay
-                verdict, error = None, type(e).__name__
-            else:
-                error = None if verdict else "no verdict"
+            verdict, error = None, "no verdict"
+            for attempt in range(retries + 1):
+                if attempt:
+                    await asyncio.sleep(backoff * attempt)
+                try:
+                    verdict = await evaluator.evaluate(case.context)
+                except Exception as e:  # a failed case must not stop the replay
+                    verdict, error = None, type(e).__name__
+                if verdict:
+                    error = None
+                    break
             ms = int((time.monotonic() - start) * 1000)
         if verdict:
             final = verdict.action
@@ -240,6 +251,16 @@ async def replay(cases: list[Case], ev_config: EvaluatorConfig, threshold: float
     finally:
         await evaluator.close()
     return results
+
+
+def done(path: str) -> list[dict]:
+    """Results already obtained in a previous run (errors excluded), for --resume."""
+    try:
+        with open(path) as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+    except FileNotFoundError:
+        return []
+    return [r for r in rows if r.get("final") != "error"]
 
 
 def report(results: list[dict]) -> str:

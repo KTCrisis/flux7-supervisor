@@ -99,7 +99,7 @@ async def test_replay_applies_threshold_and_flags_cases(monkeypatch):
     monkeypatch.setattr(bench, "create_evaluator", lambda cfg: _Fake(verdicts))
     cases = bench.select([_line(tid=t, params={"command": t}) for t in verdicts], []).cases
     out = io.StringIO()
-    results = {r["trace_id"]: r for r in await bench.replay(cases, EvaluatorConfig(), 0.8, out=out)}
+    results = {r["trace_id"]: r for r in await bench.replay(cases, EvaluatorConfig(), 0.8, out=out, backoff=0)}
     assert results["ok"]["final"] == "approve" and results["ok"]["review"] is None
     assert results["low"]["final"] == "escalate"  # below confidence_threshold
     assert results["low"]["review"] == "evaluator hesitates"  # in_scope 0.60
@@ -130,3 +130,30 @@ def test_default_deny_is_not_a_danger_label():
                        "policy": "deny", "policy_rule": "default"})
     sel = bench.select([line], [])
     assert sel.cases == [] and sel.skipped["default deny (unlisted tool)"] == 1
+
+
+async def test_replay_retries_a_failed_case(monkeypatch):
+    calls = []
+
+    class Flaky(_Fake):
+        async def evaluate(self, ctx):
+            calls.append(1)
+            return None if len(calls) < 3 else Verdict("approve", 0.9, "ok")
+
+    monkeypatch.setattr(bench, "create_evaluator", lambda cfg: Flaky({}))
+    cases = bench.select([_line(tid="x")], []).cases
+    [r] = await bench.replay(cases, EvaluatorConfig(), 0.8, backoff=0)
+    assert r["final"] == "approve" and len(calls) == 3
+
+
+def test_done_keeps_results_but_not_errors(tmp_path):
+    p = tmp_path / "r.jsonl"
+    p.write_text(json.dumps({"trace_id": "a", "final": "approve"}) + "\n"
+                 + json.dumps({"trace_id": "b", "final": "error"}) + "\n")
+    assert [r["trace_id"] for r in bench.done(str(p))] == ["a"]
+    assert bench.done(str(tmp_path / "missing.jsonl")) == []
+
+
+def test_project_dirs_are_set_on_cases():
+    sel = bench.select([_line()], [], project_dirs=["/home/u/flux7-mesh"])
+    assert sel.cases[0].context.project_dirs == ["/home/u/flux7-mesh"]

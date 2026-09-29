@@ -61,3 +61,4 @@ class ApprovalContext:
     injection_risk: bool = False
     recent_traces: list[dict] = field(default_factory=list)
     active_grants: list[dict] = field(default_factory=list)
+    project_dirs: list[str] = field(default_factory=list)  # set by the evaluator from the config

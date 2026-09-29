@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import replace
 
 from sup7.config import RuleEntry, SupervisorConfig
 from sup7.models import ApprovalContext, Decision, Verdict
@@ -89,6 +90,8 @@ class RuleEvaluator:
 
     async def _evaluate_with_llm(self, approval: ApprovalContext, start: float) -> Decision:
         assert self._llm is not None
+        if not approval.project_dirs:
+            approval = replace(approval, project_dirs=list(self._config.project_dirs))
         verdict = await self._llm.evaluate(approval)
 
         if verdict is None:
