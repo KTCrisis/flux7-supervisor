@@ -63,3 +63,32 @@ class TestParseCondition:
     def test_no_operator_raises(self):
         with pytest.raises(ValueError, match="cannot parse"):
             parse_condition("tool")
+
+
+class TestHardening:
+    """Two approval rules were broader than they read (2026-09-29)."""
+
+    @pytest.mark.parametrize("path, ok", [
+        ("/home/fluxart/flux7-mesh/main.go", True),
+        ("/home/fluxart/flux7-mesh", True),
+        ("~/flux7-mesh/docs/a.md", True),
+        ("/home/fluxart/flux7-mesh/../.bashrc", False),      # traversal out of the project
+        ("/home/fluxart/flux7-mesh-backup/x", False),        # sibling with the same prefix
+        ("flux7-mesh/main.go", False),                       # relative: no anchor
+        ("/home/fluxart/flux7-mesh/./a/../b.go", True),
+    ])
+    def test_project_dir_is_normalised(self, path, ok, monkeypatch):
+        monkeypatch.setenv("HOME", "/home/fluxart")
+        pred = parse_condition("params.path starts_with project_dir")
+        assert pred(_ctx(params={"path": path}), ["/home/fluxart/flux7-mesh/"]) is ok
+
+    def test_in_matches_exact_names_only(self):
+        pred = parse_condition("tool in filesystem.read_file, filesystem.list_directory")
+        assert pred(_ctx(tool="filesystem.read_file"), [])
+        assert pred(_ctx(tool="filesystem.list_directory"), [])
+        assert not pred(_ctx(tool="gmail.gmail_mark_as_read"), [])
+        assert not pred(_ctx(tool="filesystem.read_file_and_delete"), [])
+
+    def test_contains_read_is_a_substring_test(self):
+        # documented pitfall: kept as is, but no longer used for approvals in the examples
+        assert parse_condition("tool contains read")(_ctx(tool="gmail.gmail_mark_as_read"), [])

@@ -70,7 +70,8 @@ poll:
 
 rules:
   - name: safe-reads
-    condition: "tool contains read"
+    # exact names: "tool contains read" would also approve gmail_mark_as_read, which writes
+    condition: "tool in filesystem.read_file, filesystem.read_text_file, filesystem.read_multiple_files, filesystem.read_media_file, filesystem.list_directory, filesystem.list_directory_with_sizes, filesystem.directory_tree, filesystem.search_files, filesystem.get_file_info"
     action: approve
     confidence: 0.95
   - name: project-writes
@@ -227,14 +228,15 @@ A summary puts dangers approved first (labelled escalate or deny, approved: must
 ## Rule conditions
 
 ```
-"tool contains read"                       # tool name substring
+"tool in filesystem.read_file, filesystem.list_directory"   # exact names, comma-separated
 "tool equals filesystem.read_file"         # exact match
+"tool contains read"                       # substring: also matches gmail_mark_as_read, avoid for approvals
 "tool starts_with gmail"                   # prefix
-"params.path starts_with project_dir"      # resolved against project_dirs list
+"params.path starts_with project_dir"      # inside one of project_dirs, path normalised ("..", "~")
 "injection_risk == true"                   # boolean field
 ```
 
-Operators: `contains`, `equals`, `starts_with`, `not_equals`, `==`, `!=`.
+Operators: `in`, `equals`, `starts_with`, `contains`, `not_equals`, `==`, `!=`.
 
 A catch-all escalation rule is auto-appended if not explicitly defined.
 

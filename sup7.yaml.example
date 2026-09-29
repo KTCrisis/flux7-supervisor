@@ -44,7 +44,8 @@ poll:
 
 rules:
   - name: safe-reads
-    condition: "tool contains read"
+    # exact names: "tool contains read" would also approve gmail_mark_as_read, which writes
+    condition: "tool in filesystem.read_file, filesystem.read_text_file, filesystem.read_multiple_files, filesystem.read_media_file, filesystem.list_directory, filesystem.list_directory_with_sizes, filesystem.directory_tree, filesystem.search_files, filesystem.get_file_info"
     action: approve
     confidence: 0.95
   - name: project-writes
