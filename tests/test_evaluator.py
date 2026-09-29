@@ -87,3 +87,41 @@ class TestRuleEvaluator:
         assert decision.evaluation_ms >= 0
         assert decision.timestamp is not None
         await evaluator.close()
+
+
+class _Stub:
+    def __init__(self, verdict):
+        self.verdict = verdict
+
+    async def evaluate(self, approval):
+        return self.verdict
+
+    async def close(self):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_chain_decision_labelled_with_the_provider_that_answered():
+    # regression: a Jev answer in a jev > ollama chain was recorded as "ollama:qwen3:14b"
+    from sup7.models import Verdict
+    from sup7.providers.chain import ChainEvaluator
+
+    config = SupervisorConfig(evaluator=EvaluatorConfig(
+        chain=[EvaluatorConfig(provider="jev"), EvaluatorConfig(provider="ollama")]))
+    evaluator = RuleEvaluator(config)
+    evaluator._llm = ChainEvaluator(
+        [("jev", _Stub(Verdict("escalate", 0.4, "Jev: escalate"))), ("ollama", _Stub(None))],
+        labels=["jev:cloudflare", "ollama:qwen3:14b"])
+    decision = await evaluator.evaluate(_ctx(tool="unknown.tool"))
+    assert decision.rule_matched == "jev:cloudflare"
+    assert decision.reasoning.startswith("[jev]")
+
+
+@pytest.mark.parametrize("config, label", [
+    (EvaluatorConfig(provider="jev"), "jev:cloudflare"),
+    (EvaluatorConfig(provider="ollama", model="qwen3:14b"), "ollama:qwen3:14b"),
+    (EvaluatorConfig(chain=[EvaluatorConfig(provider="jev")]), "chain"),
+])
+def test_provider_label(config, label):
+    from sup7.providers import provider_label
+    assert provider_label(config) == label

@@ -11,15 +11,20 @@ from sup7.config import load_config
 from sup7.runner import SupervisorRunner
 
 
-def cmd_start(args: argparse.Namespace) -> None:
-    config = load_config(args.config)
-
-    level = logging.DEBUG if args.verbose else logging.INFO
+def setup_logging(verbose: bool) -> None:
     logging.basicConfig(
-        level=level,
+        level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s %(levelname)-5s %(name)s — %(message)s",
         datefmt="%H:%M:%S",
     )
+    # httpx logs every request URL at INFO; the Cloudflare one carries the account id
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+def cmd_start(args: argparse.Namespace) -> None:
+    config = load_config(args.config)
+
+    setup_logging(args.verbose)
 
     runner = SupervisorRunner(config)
     asyncio.run(runner.start())

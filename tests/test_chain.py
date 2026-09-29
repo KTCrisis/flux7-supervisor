@@ -125,3 +125,9 @@ def test_yaml_shape_parses():
     })
     assert cfg.evaluator.chain[0].jev.backend == "cloudflare"
     assert cfg.evaluator.breaker_failures == 2
+
+
+async def test_answer_carries_its_label():
+    v = await ChainEvaluator([("jev", Fake(None)), ("ollama", Fake(APPROVE))],
+                             labels=["jev:cloudflare", "ollama:qwen3:14b"]).evaluate(_ctx())
+    assert v.source == "ollama:qwen3:14b" and v.reasoning.startswith("[ollama, jev failed]")

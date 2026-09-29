@@ -32,10 +32,12 @@ class ChainEvaluator:
         failures: int = 3,
         cooldown: float = 300.0,
         clock: Callable[[], float] = time.monotonic,
+        labels: list[str] | None = None,
     ) -> None:
         if not providers:
             raise ValueError("provider chain is empty")
         self._providers = providers
+        self._labels = labels or [name for name, _ in providers]
         self._max_failures = max(1, failures)
         self._cooldown = cooldown
         self._clock = clock
@@ -67,7 +69,7 @@ class ChainEvaluator:
                 continue
             self._failures[i] = 0
             prefix = f"[{name}" + (f", {', '.join(passed)}" if passed else "") + "] "
-            return Verdict(verdict.action, verdict.confidence, prefix + verdict.reasoning)
+            return Verdict(verdict.action, verdict.confidence, prefix + verdict.reasoning, self._labels[i])
         logger.warning("every provider in the chain failed: %s", ", ".join(passed))
         return None
 

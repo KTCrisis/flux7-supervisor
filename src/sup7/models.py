@@ -13,6 +13,7 @@ class Verdict(NamedTuple):
     action: str  # "approve" | "deny" | "escalate"
     confidence: float  # 0.0-1.0
     reasoning: str
+    source: str = ""  # who answered, for the audit label; set by the provider chain
 
 
 @dataclass

@@ -7,7 +7,7 @@ import time
 
 from sup7.config import RuleEntry, SupervisorConfig
 from sup7.models import ApprovalContext, Decision, Verdict
-from sup7.providers import Evaluator, create_evaluator
+from sup7.providers import Evaluator, create_evaluator, provider_label
 from sup7.rules import Predicate, parse_condition
 
 logger = logging.getLogger(__name__)
@@ -93,7 +93,7 @@ class RuleEvaluator:
             return self._decision(
                 approval, start,
                 decision="escalated",
-                rule_matched=f"{self._config.evaluator.provider}-fallback",
+                rule_matched=f"{provider_label(self._config.evaluator)}-fallback",
                 reasoning="LLM evaluation failed, escalating to human",
                 confidence=0.0,
             )
@@ -113,7 +113,7 @@ class RuleEvaluator:
         return self._decision(
             approval, start,
             decision=action,
-            rule_matched=f"{self._config.evaluator.provider}:{self._config.evaluator.model}",
+            rule_matched=verdict.source or provider_label(self._config.evaluator),
             reasoning=reasoning,
             confidence=verdict.confidence,
         )
