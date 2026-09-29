@@ -140,10 +140,17 @@ class SupervisorConfig(BaseModel):
             )
 
 
-def load_config(path: str) -> SupervisorConfig:
-    """Load supervisor config from a YAML file."""
-    with open(path) as f:
-        data = yaml.safe_load(f)
+def parse_config(text: str) -> SupervisorConfig:
+    """Supervisor config from YAML text (validated by the models)."""
+    data = yaml.safe_load(text)
+    if not isinstance(data, dict):
+        raise ValueError("the configuration must be a YAML mapping")
     if "supervisor" in data:
         data = data["supervisor"]
     return SupervisorConfig(**data)
+
+
+def load_config(path: str) -> SupervisorConfig:
+    """Load supervisor config from a YAML file."""
+    with open(path) as f:
+        return parse_config(f.read())

@@ -203,6 +203,18 @@ admin:
 | `POST /pause` | stop evaluating: approvals stay pending in the mesh, for a human |
 | `POST /resume` | evaluate again |
 
+### Editing from the console
+
+`GET /files` lists the editable files (`config` for sup7.yaml, `questions/<file>.yaml` for each question set), `GET /files/{id}` returns one as text with its fingerprint in `ETag` (token values masked), `PUT /files/{id}` replaces it. A write:
+
+- needs `admin.token`: with no token configured, `PUT` answers 403, even on loopback;
+- must carry `If-Match: <fingerprint>` (`new` to create a question set): a file changed on disk since it was read is not overwritten (409);
+- is validated whole before anything is written (schema, rules, every question set with the edit in place); a bad edit answers 400 with the reason and leaves production untouched;
+- backs up the previous version to `<file>.bak-<timestamp>`, writes atomically, and is applied at once: rules, evaluator, thresholds, questions, project dirs and poll scope without a restart; `mesh`, `memory`, `admin`, `mcp_server` and `decision_log` are listed under `restart_required`;
+- is recorded in the decision log as a `config_change` event (file, fingerprints before and after, restart required).
+
+A new question set can be created only where a glob in `evaluator.jev.questions` matches it, e.g. `questions: [~/.sup7/questions/*.yaml]`.
+
 ## Rule conditions
 
 ```

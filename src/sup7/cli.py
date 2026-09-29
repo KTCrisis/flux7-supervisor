@@ -28,7 +28,7 @@ def cmd_start(args: argparse.Namespace) -> None:
 
     setup_logging(args.verbose)
 
-    runner = SupervisorRunner(config)
+    runner = SupervisorRunner(config, config_path=args.config)
     asyncio.run(runner.start())
 
 

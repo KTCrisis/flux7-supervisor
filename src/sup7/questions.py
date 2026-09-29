@@ -13,6 +13,7 @@ decide with, so a bad edit is refused before it reaches production.
 from __future__ import annotations
 
 import fnmatch
+import glob as globmod
 import hashlib
 import json
 from dataclasses import dataclass, field
@@ -125,19 +126,46 @@ def socle_text() -> str:
     return resources.files("sup7").joinpath("data/socle.yaml").read_text()
 
 
-def load_packs(paths: list[str]) -> list[Pack]:
-    """The configured packs, or the shipped socle when none is configured."""
+def expand(paths: list[str], extra: list[str] | None = None) -> list[Path]:
+    """Configured entries as files: `~` expanded, globs matched and sorted.
+
+    A glob lets a new pack be added by creating a file in its directory;
+    `extra` are files about to be created, kept when a glob would match them.
+    """
+    out: list[Path] = []
+    for entry in paths:
+        pattern = str(Path(entry).expanduser())
+        if globmod.has_magic(pattern):
+            found = set(globmod.glob(pattern))
+            found |= {x for x in (extra or []) if fnmatch.fnmatch(x, pattern)}
+            out += [Path(x) for x in sorted(found)]
+        else:
+            out.append(Path(pattern))
+    return out
+
+
+def load_packs(paths: list[str], overrides: dict[str, str] | None = None) -> list[Pack]:
+    """The configured packs, or the shipped socle when none is configured.
+
+    `overrides` maps a file path to the text it is about to hold: an edit is
+    validated with every other pack, before it is written.
+    """
+    overrides = {str(Path(k).expanduser()): v for k, v in (overrides or {}).items()}
     if not paths:
         packs = [parse_pack(socle_text(), "socle.yaml (shipped)")]
     else:
         packs = []
-        for p in paths:
-            path = Path(p).expanduser()
-            try:
-                text = path.read_text()
-            except OSError as e:
-                raise QuestionError(f"{path}: cannot read ({e.strerror})") from None
+        for path in expand(paths, extra=list(overrides)):
+            if str(path) in overrides:
+                text = overrides[str(path)]
+            else:
+                try:
+                    text = path.read_text()
+                except OSError as e:
+                    raise QuestionError(f"{path}: cannot read ({e.strerror})") from None
             packs.append(parse_pack(text, str(path)))
+        if not packs:
+            raise QuestionError(f"no question file matches {paths}")
     check(packs)
     return packs
 

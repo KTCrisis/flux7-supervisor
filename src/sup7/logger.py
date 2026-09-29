@@ -40,6 +40,13 @@ class DecisionLogger:
         self._file.write(json.dumps(record) + "\n")
         self._file.flush()
 
+    def log_event(self, event: dict) -> None:
+        """A non-decision record (e.g. a configuration change), tagged by its type."""
+        if self._file is None:
+            return
+        self._file.write(json.dumps(event, ensure_ascii=False) + "\n")
+        self._file.flush()
+
     def close(self) -> None:
         if self._file:
             self._file.close()

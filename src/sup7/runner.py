@@ -27,8 +27,9 @@ class SupervisorRunner:
     Optionally stores/recalls decisions via flux7-memory.
     """
 
-    def __init__(self, config: SupervisorConfig) -> None:
+    def __init__(self, config: SupervisorConfig, config_path: str | None = None) -> None:
         self._config = config
+        self._config_path = config_path  # None: editing through the admin API is off
         self._mesh = AgentMesh(
             url=config.mesh.url,
             agent=config.mesh.agent_id,
@@ -348,7 +349,71 @@ class SupervisorRunner:
             },
             "poll_interval_s": self._config.poll.interval,
             "project_dirs": self._config.project_dirs,
+            # what sup7 takes from the mesh queue: empty = every tool
+            "scope": {"tool_scopes": self._config.poll.tool_scopes},
+            "questions": self._questions_summary(),
         }
+
+    def _questions_summary(self) -> list[dict]:
+        """The question sets of each Jev provider, as the console shows them."""
+        from sup7.questions import QuestionError, load_packs, select
+
+        out = []
+        ev = self._config.evaluator
+        for cfg in [c for c in [*ev.chain, ev] if c.provider == "jev"]:
+            try:
+                packs = load_packs(cfg.jev.questions)
+            except QuestionError as e:
+                out.append({"provider": "jev", "error": str(e)})
+                continue
+            out.append({
+                "provider": "jev",
+                "files": cfg.jev.questions or ["(shipped socle)"],
+                "sha_all": select(packs, "", "").sha if all(not p.applies_to for p in packs) else None,
+                "packs": [{
+                    "name": p.name, "applies_to": p.applies_to, "source": p.source,
+                    "questions": [{
+                        "name": q.name, "type": q.type, "group": q.group, "role": q.role,
+                        "threshold": q.threshold, "ignore_when": q.ignore_when,
+                        "instructions": q.instructions, "criteria": q.criteria,
+                    } for q in p.questions],
+                } for p in packs],
+            })
+            break  # one Jev entry per chain in practice
+        return out
+
+    # ── editing (admin API) ───────────────────────────────────
+    def _files(self):
+        from sup7.editing import ConfigFiles, EditError
+
+        if not self._config_path:
+            raise EditError(409, "sup7 was started without a configuration file: nothing to edit")
+        return ConfigFiles(self._config_path, self._config)
+
+    def list_files(self) -> list[dict]:
+        return [f.describe() for f in self._files().files()]
+
+    def read_file(self, file_id: str) -> tuple[str, str]:
+        return self._files().read(file_id)
+
+    def write_file(self, file_id: str, text: str, if_match: str | None, by: str) -> dict:
+        """Validate and write one file, then apply it without a restart where possible."""
+        from sup7.editing import split_restart
+
+        new, change = self._files().write(file_id, text, if_match)
+        applied, pending = split_restart(self._config, new)
+        old_evaluator = self._evaluator
+        self._evaluator = RuleEvaluator(applied)
+        self._config = applied
+        # verdicts in flight keep the old evaluator; its clients close a bit later
+        asyncio.get_running_loop().call_later(
+            60, lambda: asyncio.ensure_future(old_evaluator.close()))
+        event = {"type": "config_change", "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                 "by": by, **change, "restart_required": pending}
+        self._logger.log_event(event)
+        logger.info("configuration changed: %s %s -> %s by %s%s", change["file"], change["sha_before"],
+                    change["sha_after"], by, f" (restart required: {', '.join(pending)})" if pending else "")
+        return {**change, "reloaded": True, "restart_required": pending}
 
     def recent_decisions(self, limit: int) -> list[dict]:
         return list(self._recent)[:limit]
