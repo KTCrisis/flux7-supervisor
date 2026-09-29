@@ -169,3 +169,17 @@ async def test_edit_through_the_api_reloads_without_restart(setup, tmp_path):
     events = [json.loads(line) for line in open(tmp_path / "decisions.jsonl")]
     assert [e["file"] for e in events] == ["config", "questions/finance.yaml"]
     assert all(e["type"] == "config_change" and e["by"] == "admin-api" for e in events)
+
+
+def test_write_keeps_the_file_mode(setup):
+    # sup7.yaml holds admin.token: an edit must not turn 600 into 644
+    import os
+    import stat
+    path, qdir = setup
+    os.chmod(path, 0o600)
+    files = ConfigFiles(str(path), load_config(str(path)))
+    text, fingerprint = files.read("config")
+    files.write("config", text + "# edited\n", fingerprint)
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    files.write("questions/finance.yaml", FINANCE, "new")
+    assert stat.S_IMODE(os.stat(qdir / "finance.yaml").st_mode) == 0o600

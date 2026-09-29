@@ -24,6 +24,7 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -178,7 +179,13 @@ class ConfigFiles:
         if current is not None:
             shutil.copy2(ref.path, f"{ref.path}.bak-{stamp}")
         tmp = ref.path.with_name(f".{ref.path.name}.tmp")
-        tmp.write_text(text)
+        # the file holds tokens: the new version keeps the old one's mode (600),
+        # a new file gets 600; created closed, never readable in between
+        mode = stat.S_IMODE(ref.path.stat().st_mode) if current is not None else 0o600
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        os.chmod(tmp, mode)  # O_CREAT mode is filtered by the umask
         os.replace(tmp, ref.path)
         return config, {"file": file_id, "path": str(ref.path),
                         "sha_before": sha(current) if current is not None else None,
