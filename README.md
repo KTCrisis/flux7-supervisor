@@ -1,18 +1,20 @@
 # flux7-supervisor
 
-Standalone L1 evaluation agent for [flux7-mesh](https://github.com/KTCrisis/flux7-mesh). Sits between the policy engine (L0) and human operators (L2) — polls pending approvals, evaluates them with rules and an LLM, and resolves or escalates.
+Standalone L1 evaluation agent for [flux7-mesh](https://github.com/KTCrisis/flux7-mesh). Sits between the policy engine (L0) and human operators (L2): polls pending approvals, judges them with rules, then a decision model or an LLM, and resolves or escalates. It can also judge a single call on demand (`POST /evaluate`) for any other enforcement point.
 
 ```
-flux7-mesh (L0: policy engine)
+flux7-mesh (L0: policy engine)          any enforcement point
+     │                                   (Agent SDK hook, gateway plugin)
+     │  pending approval                       │  POST /evaluate
+     ▼                                         ▼
+flux7-supervisor (L1: rules, then Jev or an LLM, thresholds per question)
      │
-     │  pending approval
-     ▼
-flux7-supervisor (L1: rules + LLM)
-     │
-     ├── rule match → auto-approve/deny
-     ├── LLM evaluation → approve/deny/escalate
-     └── unknown → escalate to human (L2)
+     ├── rule match → approve / deny / escalate
+     ├── evaluator  → approve / deny / escalate, with probabilities and provenance
+     └── unknown or failure → escalate to a human (L2)
 ```
+
+Documentation: [docs.flux7.art/sup7](https://docs.flux7.art/sup7/), including [Jev and question sets](https://docs.flux7.art/sup7/jev/) and [Measuring](https://docs.flux7.art/sup7/measuring/).
 
 ## Install
 
@@ -31,6 +33,9 @@ sup7 -c sup7.yaml status
 
 # Start the supervisor loop
 sup7 -c sup7.yaml start
+
+# Replay mesh7 traces through the configured evaluator, offline (count first)
+sup7 -c sup7.yaml bench replay --traces traces.jsonl --allow-repo my-project --dry-run
 ```
 
 Requires a running `mesh7 serve` instance. Optional: `mem7 serve` for decision persistence.
@@ -89,12 +94,12 @@ project_dirs:
 
 ## Evaluation flow
 
-1. **Poll** — fetches pending approvals from flux7-mesh
+1. **Poll** — fetches pending approvals from flux7-mesh (`poll.interval`; 500 ms pairs with mesh7's `approval.wait_seconds`, so a call sup7 decides runs without a retry)
 2. **Rules** — first-match-wins condition evaluation (instant)
-3. **LLM** — if no rule matches, the configured provider evaluates with approval context
-4. **Threshold** — if LLM confidence < `confidence_threshold`, escalate to human
+3. **Evaluator** — if no rule matches, the provider or chain evaluates with the approval context and `project_dirs`; `provider: none` keeps sup7 to its rules
+4. **Threshold** — below the `confidence_threshold` of the provider that answered, escalate to a human
 5. **Resolve** — posts approve/deny back to flux7-mesh with reasoning
-6. **Persist** — writes decision to flux7-memory as a queryable fact
+6. **Persist** — JSONL decision log with the evaluator's provenance, and flux7-memory as a queryable fact
 
 ## LLM providers
 
@@ -125,13 +130,27 @@ evaluator:
       model: qwen3:14b
 ```
 
-Providers are tried in order; the first one that answers gives the verdict (an `escalate` verdict is an answer). The next one is tried only on failure: network error, HTTP error, timeout, unreadable answer. If every provider fails, sup7 escalates to a human. The reasoning records who decided, e.g. `[ollama, jev skipped] ...`. Without `chain`, the single `provider` works as before.
+Providers are tried in order; the first one that answers gives the verdict (an `escalate` verdict is an answer). The next one is tried only on failure: network error, HTTP error, timeout, unreadable answer. If every provider fails, sup7 escalates to a human. The reasoning records who decided, e.g. `[ollama, jev skipped] ...`, and the decision's `rule_matched` names the provider that answered (`jev:cloudflare`). A chain entry may set its own `confidence_threshold`: confidences are not comparable across models (Jev's is computed, an LLM's self-reported). Without `chain`, the single `provider` works as before.
 
 ### Jev (TypeSafe AI)
 
-Jev does not generate text: it answers typed questions about a state, each with a probability. sup7 asks six narrow factual questions (noul: probability of yes) about the pending call and decides in code, fail-closed:
+Jev does not generate text and is not asked to decide: it answers narrow factual questions about the pending call, each with a probability, and sup7 decides in code, fail-closed. A broad approve/escalate/deny question was tried first and stayed soft (0.61 to 0.79) where narrow questions answered 0.99.
 
-The questions are YAML, not code. sup7 ships a base set, [`src/sup7/data/socle.yaml`](src/sup7/data/socle.yaml); business packs are extra files listed under `evaluator.jev.questions`, each applying to some agents or tools, asked in the same call as the base set:
+The base set, [`src/sup7/data/socle.yaml`](src/sup7/data/socle.yaml):
+
+| Question | Family | Type | True when |
+|----------|--------|------|-----------|
+| `deletes` | danger | noul | the call removes or truncates data |
+| `overwrites` | danger | noul | it replaces an existing file or record; not counted when it acts in the project |
+| `exfiltrates` | danger | noul | local data (files, code, secrets, personal data) leaves the machine; a search query does not |
+| `secrets` | danger | noul | it targets credentials, keys, tokens or permissions |
+| `target_zone` | context | choice | where it acts: project, home, system, remote, none (against `project_dirs`) |
+| `in_scope` | context | noul | it fits the agent's recent activity |
+| `injection` | manipulation | noul | the parameters carry instructions aimed at a model |
+
+Decision: a manipulation answer above its threshold escalates; a danger ≥ `deny_min` with `in_scope` < `deny_in_scope_max` denies; every counted danger at or below its threshold (`destructive_max` by default) with `in_scope` ≥ `in_scope_min` approves, with confidence `min(1 - highest danger, 1 - injection)`, then the provider's `confidence_threshold`; anything else escalates, including any API error. The probabilities head the reasoning with the model and a fingerprint of the questions (`Jev jev-1.13.0 q=…: approve (…)`), and the decision log, mem7 and `GET /decisions` keep the provenance under `evaluator` (model, fingerprint, packs, thresholds).
+
+The questions are YAML, not code. Business packs are extra files listed under `evaluator.jev.questions` (globs allowed), each applying to some agents or tools, asked in the same call as the base set:
 
 ```yaml
 # ~/.sup7/questions/finance.yaml
@@ -148,40 +167,30 @@ questions:
       false: Reads balances or prepares a draft
 ```
 
-```yaml
-evaluator:
-  provider: jev
-  jev:
-    questions: [~/.sup7/questions/socle.yaml, ~/.sup7/questions/finance.yaml]   # empty = the shipped socle
-```
-
-Only `type`, `instructions` and `criteria` are sent to Jev; `group`, `role` (`scope` on the question that gates approval and deny), `threshold` and `ignore_when` stay in sup7. Every set is validated when sup7 starts: a set that loads is one sup7 can decide with. The base set:
-
-| Question | Type | Asks |
-|----------|------|------|
-| `deletes` | noul | deletes files, directories or records |
-| `overwrites` | noul | replaces an existing file or record (creating one does not count) |
-| `exfiltrates` | noul | sends data off the machine |
-| `secrets` | noul | reads, changes or exposes credentials, secrets or permissions |
-| `in_scope` | noul | consistent with the agent's recent activity |
-| `injection` | noul | parameters carry instructions aimed at a model |
-
-`destructive` is the highest of the four harm signals. Injection above `injection_max` escalates; deny only when `destructive` ≥ `deny_min` and the call is out of scope; approve only when `destructive` ≤ `destructive_max` and `in_scope` ≥ `in_scope_min`, with confidence = the weakest safe-side signal (then `confidence_threshold` applies); escalate everything else, including any API error. The probabilities are written into the decision reasoning, so each verdict is auditable in the mesh traces and in mem7. Each Jev decision also records its provenance: the model version returned by the API (`jev-1.13.0`), a 12-character fingerprint of the question set (it changes whenever a question or criterion changes) and the thresholds applied, under `evaluator` in the decision log, mem7 and `GET /decisions`; model and fingerprint also head the reasoning (`Jev jev-1.13.0 q=…: approve (…)`), which is what the mesh trace keeps.
+Only `type`, `instructions` and `criteria` are sent to Jev; `group`, `role`, `threshold` and `ignore_when` stay in sup7. Every set is validated at load and on edit.
 
 ```yaml
 evaluator:
-  provider: jev
-  confidence_threshold: 0.8
-  jev:
-    backend: cloudflare              # cloudflare (Workers AI, zero data retention) | typesafe
-    api_key_env: CLOUDFLARE_API_TOKEN  # TYPESAFE_API_KEY with backend: typesafe
-    account_id_env: CLOUDFLARE_ACCOUNT_ID
-    destructive_max: 0.2
-    in_scope_min: 0.7
-    injection_max: 0.5
-    deny_min: 0.9
-    redact_params: [content]         # parameter names never sent to the model
+  chain:
+    - provider: jev
+      confidence_threshold: 0.6          # measured, see docs "Measuring"
+      jev:
+        backend: cloudflare              # cloudflare (Workers AI, zero data retention) | typesafe
+        api_key_env: CLOUDFLARE_API_TOKEN  # TYPESAFE_API_KEY with backend: typesafe
+        account_id_env: CLOUDFLARE_ACCOUNT_ID
+        questions: [~/.sup7/questions/*.yaml]   # empty = the shipped socle
+        destructive_max: 0.4             # code default 0.2
+        in_scope_min: 0.3                # code default 0.7
+        deny_min: 0.9
+        deny_in_scope_max: 0.7
+        injection_max: 0.5
+        project_min: 0.7
+        redact_params: [content]         # parameter names never sent to the model
+    - provider: ollama
+      model: qwen3:14b
 ```
+
+The code defaults are conservative, for an installation without measurements; the values above were measured on about a thousand real calls and 28 boundary cases (0 danger approved, 89 % of normal calls approved). Measure your own: `sup7 bench replay`, or the Evaluate tab of flux7-console.
 
 ## Admin API
 
@@ -192,17 +201,20 @@ admin:
   enabled: true
   host: 127.0.0.1   # loopback; set a token before binding elsewhere
   port: 9096
-  token: ""         # when set, required as "Authorization: Bearer <token>"
+  token: ""         # when set, required as "Authorization: Bearer <token>"; always required to edit and to run evaluations
 ```
 
 | Route | Does |
 |-------|------|
 | `GET /health` | liveness (no token) |
 | `GET /status` | running or paused, mesh reachability, decision counters, state of each provider (ok, failing, skipped by the breaker) |
-| `GET /config` | rules, thresholds, provider chain; never secrets |
+| `GET /config` | rules, provider chain with each provider's effective threshold, poll scope, project dirs, question sets; never secrets |
 | `GET /decisions?limit=50` | most recent decisions with their reasoning |
 | `POST /pause` | stop evaluating: approvals stay pending in the mesh, for a human |
 | `POST /resume` | evaluate again |
+| `POST /evaluate` | judge one tool call on demand, outside the mesh queue |
+| `GET /files`, `GET /files/{id}`, `PUT /files/{id}` | read and edit sup7.yaml and the question sets |
+| `GET /bench/sets`, `/bench/runs`, `/bench/runs/{id}`, `/bench/estimate`, `/bench/progress`; `POST /bench/runs` | case sets, evaluation runs, cost of a replay; start a run |
 
 ### Judging a call on demand: `POST /evaluate`
 
@@ -260,8 +272,8 @@ A catch-all escalation rule is auto-appended if not explicitly defined.
 
 ```
 L0  flux7-mesh          Static policy (allow/deny/human_approval)    0ms
-L1  flux7-mesh built-in  flux7-memory lookup (3+ past approvals)     ~100ms
-L1+ flux7-supervisor     Rules + LLM evaluation                      ~2-20s
+L1  flux7-mesh built-in  flux7-memory precedents (human, reads only)  ~10ms
+L1+ flux7-supervisor     Rules, then Jev (~0.35s) or an LLM (~2-20s)
 L2  Human                Claude Code prompt / flux7-console UI        minutes
 ```
 
@@ -270,7 +282,7 @@ The built-in L1 in flux7-mesh handles routine patterns. sup7 handles novel cases
 ## Testing
 
 ```bash
-pytest                  # 49 tests
+pytest                  # 184 tests, no network (the LLM provider is disabled in tests)
 pytest -x -v            # verbose, stop on first failure
 ```
 
@@ -278,14 +290,19 @@ pytest -x -v            # verbose, stop on first failure
 
 ```
 src/sup7/
-├── cli.py              # sup7 start / status
+├── cli.py              # sup7 start / status / bench replay
 ├── config.py           # YAML config loader
+├── questions.py        # Jev question sets (YAML packs), validation, selection
+├── data/socle.yaml     # the base question set
+├── editing.py          # validated, guarded, backed-up edits of sup7.yaml and question sets
+├── bench.py            # replay of mesh7 traces through an evaluator (filtering, review)
+├── benchrun.py         # evaluation runs: case sets, recompute, replay, summaries
 ├── evaluator.py        # Orchestrates rules → LLM → resolve
 ├── rules.py            # Condition parser + predicate engine
 ├── runner.py           # Async poll loop with graceful shutdown
 ├── models.py           # Verdict, Decision, ApprovalContext
 ├── mcp_server.py       # FastMCP server for Claude Code callback
-├── admin.py            # HTTP admin API (status, config, decisions, pause)
+├── admin.py            # HTTP admin API (status, config, decisions, pause, files, bench, evaluate)
 ├── logger.py           # JSONL decision log
 └── providers/
     ├── base.py         # Provider interface
