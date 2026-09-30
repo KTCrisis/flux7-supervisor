@@ -39,7 +39,7 @@ class JevConfig(BaseModel):
     backend: Literal["cloudflare", "typesafe"] = "cloudflare"
     model: str = ""  # default: typesafe/jev (cloudflare) or jev-latest (typesafe)
     url: str = ""  # default: the backend's public endpoint
-    api_key_env: str = "CLOUDFLARE_API_TOKEN"  # TYPESAFE_API_KEY for backend typesafe
+    api_key_env: str = "CLOUDFLARE_API_TOKEN"  # TYPESAFE_API_KEY for backend typesafe; "" = no key (local Ollama)
     account_id_env: str = "CLOUDFLARE_ACCOUNT_ID"  # cloudflare only
     injection_max: float = 0.5  # above: escalate
     destructive_max: float = 0.2  # above: never auto-approve

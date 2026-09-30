@@ -98,6 +98,34 @@ async def test_typesafe_request_shape(monkeypatch):
     assert "state" in seen["body"] and "input" not in seen["body"]
 
 
+async def test_local_server_takes_no_key(monkeypatch):
+    """An empty api_key_env: no variable required, no Authorization header (Ollama System One)."""
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    seen = {}
+
+    def handler(request: httpx.Request):
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("authorization")
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"model": "nimble", "answers": _answers()})
+
+    verdict = await _evaluator(handler, backend="typesafe", url="http://localhost:11434/v1/systemone",
+                               model="nimble", api_key_env="").evaluate(_ctx())
+    assert verdict is not None
+    assert seen["url"] == "http://localhost:11434/v1/systemone"
+    assert seen["auth"] is None
+    assert seen["body"]["model"] == "nimble"
+
+
+async def test_missing_key_still_fails_closed(monkeypatch):
+    """A named key that is not exported still stops the call: only an empty name means no key."""
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    called = []
+    verdict = await _evaluator(lambda r: called.append(r) or httpx.Response(200, json={}),
+                               backend="typesafe", api_key_env="TYPESAFE_API_KEY").evaluate(_ctx())
+    assert verdict is None and not called
+
+
 async def test_redacted_params_never_sent():
     seen = {}
 
