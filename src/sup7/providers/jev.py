@@ -82,7 +82,7 @@ class JevEvaluator:
 
     def _request(self, approval: ApprovalContext) -> tuple[str, dict, dict]:
         body = {"state": self._state(approval), "questions": self._selection(approval).wire()}
-        token = os.environ.get(self._jev.api_key_env, "")
+        token = os.environ.get(self._jev.api_key_env, "") if self._jev.api_key_env else ""
         if self._jev.backend == "cloudflare":
             account = os.environ.get(self._jev.account_id_env, "")
             url = self._jev.url or CLOUDFLARE_URL.format(account_id=account)
@@ -90,7 +90,9 @@ class JevEvaluator:
         else:
             url = self._jev.url or TYPESAFE_URL
             payload = {"model": self._jev.model or "jev-latest", **body}
-        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json"}
+        if token:  # a local System One server (Ollama) takes no key
+            headers["Authorization"] = f"Bearer {token}"
         return url, headers, payload
 
     # ── evaluate ─────────────────────────────────────────────
@@ -196,9 +198,10 @@ class JevEvaluator:
         return Verdict("escalate", 1 - destructive, f"{who}: escalate ({signals})", meta=meta, raw=answers)
 
     def _required_env(self) -> list[str]:
+        """Variables that must be set; an empty api_key_env means no key (local server)."""
         if self._jev.backend == "cloudflare" and not self._jev.url:
             return [self._jev.api_key_env, self._jev.account_id_env]
-        return [self._jev.api_key_env]
+        return [self._jev.api_key_env] if self._jev.api_key_env else []
 
     async def close(self) -> None:
         if self._client is not None:
