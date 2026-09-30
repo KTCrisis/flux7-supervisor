@@ -1,0 +1,6 @@
+# Local Jev (Ollama System One, nimble) replaces the free-text Ollama fallback
+
+- **Problem**: when Jev (Cloudflare) failed, the chain fell back to Ollama generating free text, so sup7 lost its method (typed questions, decision in code), not just its provider. Ollama 0.35 now serves the same System One API locally.
+- **Decision**: second chain entry = `provider: jev`, `backend: typesafe`, `url: http://localhost:11434/v1/systemone`, `model: nimble`, `api_key_env: ""` (no key, code change aa75551), own `in_scope_min: 0.05`; plus nine `governance-*` escalate rules on the mesh7 config, policies, `~/.sup7/` and `.claude/settings`, placed after `safe-reads` and before `project-writes`.
+- **Why**: bench of 30/09 (`~/.sup7/bench/local-nimble/`): with Jev's thresholds nimble approved 47 % of 1,027 real calls (Jev 89 %) because its `in_scope` runs lower; at 0.05 it reaches 87 %, denies 13/13 boundary denies (Jev 10/13). Its one approved danger, an edit of `default_action` in `my-flow.local.yaml`, stays approved at any floor: no threshold fixes a missing signal, a rule does, and it holds for Jev too.
+- **Where**: `src/sup7/providers/jev.py` (empty key), `~/.sup7/sup7.yaml` (backup `.bak-2026-09-30`), live since the 30/09 20:51 restart; verified with `POST /evaluate` (governance edit escalated by rule in 0 ms, `pytest` approved by Jev).
