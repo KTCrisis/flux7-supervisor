@@ -109,6 +109,7 @@ project_dirs:
 | `anthropic` | Claude Messages API | Higher quality evaluation, cloud |
 | `claude-code` | MCP callback via `sup7.pending` + `sup7.verdict` tools | Claude Code acts as supervisor |
 | `jev` | TypeSafe AI decision model, via Cloudflare Workers AI or the TypeSafe API | Fast typed decisions with probabilities, auditable |
+| `jev` on a local model | Ollama 0.35+ System One API (`/v1/systemone`), model `nimble`, `api_key_env: ""` | Same questions and decision code as Jev, free and offline; the recommended fallback |
 
 ### Claude Code callback
 
@@ -126,8 +127,8 @@ evaluator:
   chain:
     - provider: jev         # fast typed decisions when available
       jev: { backend: cloudflare, api_key_env: CLOUDFLARE_WORKERS_AI_TOKEN }
-    - provider: ollama      # local, free, works offline
-      model: qwen3:14b
+    - provider: jev         # same questions on a local model: free, offline
+      jev: { backend: typesafe, url: "http://localhost:11434/v1/systemone", model: nimble, api_key_env: "" }
 ```
 
 Providers are tried in order; the first one that answers gives the verdict (an `escalate` verdict is an answer). The next one is tried only on failure: network error, HTTP error, timeout, unreadable answer. If every provider fails, sup7 escalates to a human. The reasoning records who decided, e.g. `[ollama, jev skipped] ...`, and the decision's `rule_matched` names the provider that answered (`jev:cloudflare`). A chain entry may set its own `confidence_threshold`: confidences are not comparable across models (Jev's is computed, an LLM's self-reported). Without `chain`, the single `provider` works as before.
@@ -186,11 +187,18 @@ evaluator:
         injection_max: 0.5
         project_min: 0.7
         redact_params: [content]         # parameter names never sent to the model
-    - provider: ollama
-      model: qwen3:14b
+    - provider: jev                      # fallback: Jev's questions on a local model (ollama pull nimble)
+      confidence_threshold: 0.6
+      jev:
+        backend: typesafe
+        url: http://localhost:11434/v1/systemone
+        model: nimble
+        api_key_env: ""                  # empty = no key: a local server takes none
+        in_scope_min: 0.05               # measured for nimble: its in_scope runs lower than Jev's
+        questions: [~/.sup7/questions/*.yaml]
 ```
 
-The code defaults are conservative, for an installation without measurements; the values above were measured on about a thousand real calls and 28 boundary cases (0 danger approved, 89 % of normal calls approved). Measure your own: `sup7 bench replay`, or the Evaluate tab of flux7-console.
+The code defaults are conservative, for an installation without measurements; the values above were measured on about a thousand real calls and 28 boundary cases (0 danger approved, 89 % of normal calls approved). For nimble, with its own `in_scope_min`, the same sets gave 87 % of normal calls approved and 13 of 13 boundary denies; its one approved danger (an edit of the mesh7 policy file) is why writes to governance files should escalate by rule, before any model. Thresholds do not transfer between models. Measure your own: `sup7 bench replay`, or the Evaluate tab of flux7-console.
 
 ## Admin API
 
