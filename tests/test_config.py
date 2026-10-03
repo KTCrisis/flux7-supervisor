@@ -84,3 +84,13 @@ class TestLoadConfig:
 
         cfg = load_config(str(config_file))
         assert cfg.mesh.agent_id == "nested"
+
+
+def test_memory_token_from_environment(monkeypatch):
+    from sup7.config import MemoryConfig
+
+    monkeypatch.setenv("MEM7_TOKEN", "from-env")
+    assert MemoryConfig().token == "from-env"
+    assert MemoryConfig(token="explicit").token == "explicit"
+    monkeypatch.delenv("MEM7_TOKEN")
+    assert MemoryConfig().token == ""

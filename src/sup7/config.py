@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Literal
 
@@ -25,12 +26,19 @@ class MeshConfig(BaseModel):
 
 class MemoryConfig(BaseModel):
     url: str = "http://localhost:9070"
-    token: str = ""
+    # empty: MEM7_TOKEN from the environment, so the token stays in the
+    # service's environment file rather than in this YAML
+    token: str = Field(default="", validate_default=True)
     enabled: bool = False
     store_decisions: bool = True
     recall_on_start: bool = True
     recall_limit: int = 20
     tags: list[str] = Field(default_factory=lambda: ["supervisor", "decision"])
+
+    @field_validator("token", mode="after")
+    @classmethod
+    def _token_from_env(cls, v: str) -> str:
+        return v or os.environ.get("MEM7_TOKEN", "")
 
 
 class JevConfig(BaseModel):
