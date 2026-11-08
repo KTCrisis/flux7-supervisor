@@ -1,7 +1,6 @@
 """Tests for LLM providers."""
 
 import asyncio
-from unittest.mock import AsyncMock, patch
 
 import pytest
 

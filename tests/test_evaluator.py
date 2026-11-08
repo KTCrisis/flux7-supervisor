@@ -151,7 +151,9 @@ async def test_decision_carries_evaluator_provenance(tmp_path):
     assert decision.evaluator == meta
 
     log = DecisionLogger(str(tmp_path / "d.jsonl"))
-    log.open(); log.log(decision); log.close()
+    log.open()
+    log.log(decision)
+    log.close()
     assert json.loads((tmp_path / "d.jsonl").read_text())["evaluator"] == meta
 
 

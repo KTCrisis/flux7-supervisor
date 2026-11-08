@@ -2,7 +2,6 @@
 
 from sup7.config import EvaluatorConfig
 from sup7.mcp_server import set_evaluator, sup7_pending, sup7_verdict
-from sup7.models import Verdict
 from sup7.providers.claude_code import ClaudeCodeEvaluator
 
 
