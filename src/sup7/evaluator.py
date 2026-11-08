@@ -7,7 +7,7 @@ import time
 from dataclasses import replace
 
 from sup7.config import RuleEntry, SupervisorConfig
-from sup7.models import ApprovalContext, Decision, Verdict
+from sup7.models import ApprovalContext, Decision
 from sup7.providers import Evaluator, create_evaluator, provider_label
 from sup7.rules import Predicate, parse_condition
 
