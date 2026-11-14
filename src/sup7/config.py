@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import re
 from typing import Literal
 
@@ -22,6 +23,28 @@ def _parse_duration(value: str) -> float:
 class MeshConfig(BaseModel):
     url: str = "http://localhost:9090"
     agent_id: str = "supervisor"
+    # mesh7's admin token, needed to approve or deny once the mesh runs with
+    # auth.admin_scope "writes". Read from MESH_ADMIN_TOKEN, else from this
+    # file (first line), so it never sits in the YAML.
+    token_file: str = ""
+
+    def admin_token(self) -> str:
+        """The token sup7 presents to mesh7's control plane, or ""."""
+        env = os.environ.get("MESH_ADMIN_TOKEN", "").strip()
+        if env:
+            return env
+        if not self.token_file:
+            return ""
+        path = Path(self.token_file).expanduser()
+        try:
+            first = path.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            # a named file that cannot be read is a broken config, not "no token"
+            raise ValueError(f"mesh.token_file {path}: {exc}") from exc
+        token = first[0].strip() if first else ""
+        if not token:
+            raise ValueError(f"mesh.token_file {path} is empty")
+        return token
 
 
 class MemoryConfig(BaseModel):
