@@ -31,9 +31,12 @@ class SupervisorRunner:
     def __init__(self, config: SupervisorConfig, config_path: str | None = None) -> None:
         self._config = config
         self._config_path = config_path  # None: editing through the admin API is off
+        # with mesh7's admin_scope "writes", approving needs the admin token;
+        # resolve() still names sup7 in resolved_by
         self._mesh = AgentMesh(
             url=config.mesh.url,
             agent=config.mesh.agent_id,
+            token=config.mesh.admin_token() or None,
         )
         self._evaluator = RuleEvaluator(config)
         self._logger = DecisionLogger(config.decision_log)

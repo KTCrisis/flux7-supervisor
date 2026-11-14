@@ -94,3 +94,26 @@ def test_memory_token_from_environment(monkeypatch):
     assert MemoryConfig(token="explicit").token == "explicit"
     monkeypatch.delenv("MEM7_TOKEN")
     assert MemoryConfig().token == ""
+
+
+def test_mesh_admin_token_sources(tmp_path, monkeypatch):
+    from sup7.config import MeshConfig
+    monkeypatch.delenv("MESH_ADMIN_TOKEN", raising=False)
+    assert MeshConfig().admin_token() == ""
+    f = tmp_path / "admin.token"
+    f.write_text("tok-file\n", encoding="utf-8")
+    assert MeshConfig(token_file=str(f)).admin_token() == "tok-file"
+    monkeypatch.setenv("MESH_ADMIN_TOKEN", "tok-env")
+    assert MeshConfig(token_file=str(f)).admin_token() == "tok-env"
+
+
+def test_a_named_token_file_that_cannot_be_read_is_an_error(tmp_path, monkeypatch):
+    import pytest
+    from sup7.config import MeshConfig
+    monkeypatch.delenv("MESH_ADMIN_TOKEN", raising=False)
+    with pytest.raises(ValueError):
+        MeshConfig(token_file=str(tmp_path / "missing")).admin_token()
+    empty = tmp_path / "empty"
+    empty.write_text("\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        MeshConfig(token_file=str(empty)).admin_token()
