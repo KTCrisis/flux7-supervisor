@@ -57,6 +57,10 @@ Adapt `User=` and paths first. Pair it with `approval.channel: queue` in the mes
 mesh:
   url: http://localhost:9090
   agent_id: supervisor
+  # mesh7's admin token, needed to approve or deny when the mesh runs with
+  # auth.admin_scope "writes". MESH_ADMIN_TOKEN overrides it; a named file
+  # that cannot be read, or an empty one, is a config error.
+  # token_file: /etc/mesh7/admin.token
 
 memory:
   url: http://localhost:9070
