@@ -18,12 +18,16 @@ Documentation: [docs.flux7.art/sup7](https://docs.flux7.art/sup7/), including [J
 
 ## Install
 
+Not on PyPI yet: install from GitHub.
+
 ```bash
-pip install flux7-supervisor
+pip install git+https://github.com/KTCrisis/flux7-supervisor
 
 # With Anthropic provider
-pip install flux7-supervisor[anthropic]
+pip install "flux7-supervisor[anthropic] @ git+https://github.com/KTCrisis/flux7-supervisor"
 ```
+
+This installs the `sup7` command.
 
 ## Quick start
 
